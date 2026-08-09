@@ -18,6 +18,17 @@ import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import type * as THREE_T from 'three';
 
 const MODEL_URL = '/models/lionk.vrm';
+/**
+ * Optional motion capture. If this manifest is present the character is driven
+ * by real VRM Animation clips instead of the authored poses below; if it is
+ * missing — which it is by default — nothing is requested and the procedural
+ * rig runs exactly as before. See `public/models/motions/README.md`.
+ *
+ * Nothing ships with the site: the freely available .vrma packs forbid being
+ * redistributed in a form that can be extracted, which is precisely what a
+ * public static host does, so the files are the site owner's to supply.
+ */
+const MOTION_MANIFEST = '/models/motions/motions.json';
 /** Below this the deck has no room for a character beside the content. */
 const MIN_VIEWPORT = 1100;
 const PREF_KEY = 'lionk-visible';
@@ -505,6 +516,78 @@ async function start(stage: HTMLElement): Promise<void> {
   let popAmount = 0;
   let burstTimer = 0;
 
+  let mixer: THREE_T.AnimationMixer | null = null;
+  let sceneActions: (THREE_T.AnimationAction | null)[] = [];
+  let greetAction: THREE_T.AnimationAction | null = null;
+  let currentAction: THREE_T.AnimationAction | null = null;
+
+  /**
+   * Loads whatever clips the manifest lists. A missing manifest, a missing
+   * file, or a file with no usable animation in it all resolve to "no motion
+   * for that slide" and the procedural rig covers it — so a partly filled
+   * motions folder is a supported state, not a broken one.
+   */
+  async function loadMotions(): Promise<void> {
+    let manifest: { scenes?: (string | null)[]; greet?: string | null };
+    try {
+      const response = await fetch(MOTION_MANIFEST);
+      if (!response.ok) return;
+      manifest = await response.json();
+    } catch {
+      // No manifest is the normal case; the site ships without motion files.
+      return;
+    }
+
+    // An empty manifest is how the site ships. Bail before pulling in the
+    // animation runtime, so an unused chunk is never downloaded.
+    const listed = [...(manifest.scenes ?? []), manifest.greet].filter(Boolean);
+    if (listed.length === 0) return;
+
+    const { VRMAnimationLoaderPlugin, createVRMAnimationClip } = await import(
+      '@pixiv/three-vrm-animation'
+    );
+
+    const motionLoader = new GLTFLoader();
+    motionLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+    mixer = new THREE.AnimationMixer(vrm!.scene);
+
+    const toAction = async (file: string | null | undefined) => {
+      if (!file) return null;
+      try {
+        const gltf = await motionLoader.loadAsync(`/models/motions/${file}`);
+        const animation = gltf.userData.vrmAnimations?.[0];
+        if (!animation) return null;
+        return mixer!.clipAction(createVRMAnimationClip(animation, vrm!));
+      } catch (error) {
+        console.warn(`[lionk] motion "${file}" could not be loaded`, error);
+        return null;
+      }
+    };
+
+    sceneActions = await Promise.all((manifest.scenes ?? []).map(toAction));
+
+    greetAction = await toAction(manifest.greet);
+    if (greetAction) {
+      greetAction.setLoop(THREE.LoopOnce, 1);
+      greetAction.clampWhenFinished = true;
+      // When the greeting finishes, hand the body back to the slide's clip.
+      mixer.addEventListener('finished', () => playMotion(sceneIndex));
+    }
+
+    playMotion(sceneIndex);
+  }
+
+  /** Cross-fades to a clip, or to nothing — which returns the body to the rig. */
+  function playMotion(index: number, action = sceneActions[index] ?? null): void {
+    if (!mixer || action === currentAction) return;
+
+    if (action) {
+      action.reset().setEffectiveWeight(1).fadeIn(currentAction ? 0.35 : 0.7).play();
+    }
+    currentAction?.fadeOut(0.35);
+    currentAction = action;
+  }
+
   // Pointer position in [-1, 1], smoothed toward the raw reading each frame.
   let pointerX = 0;
   let pointerY = 0;
@@ -621,12 +704,14 @@ async function start(stage: HTMLElement): Promise<void> {
 
     reactionUntil = elapsed + 2.4;
     hopVelocity = 1.9;
+    if (greetAction) playMotion(sceneIndex, greetAction);
   }
 
   function onDeckChange(event: Event): void {
     const detail = (event as CustomEvent<{ index?: number }>).detail;
     if (typeof detail?.index !== 'number') return;
     setScene(detail.index);
+    playMotion(detail.index);
 
     // A game menu snaps its character into the new pose and punches the frame;
     // it does not glide. The window below is what the tick loop reads to swap
@@ -676,11 +761,18 @@ async function start(stage: HTMLElement): Promise<void> {
     if (hopHeight === 0 && hopVelocity < 0) hopVelocity = 0;
     root.position.y = hopHeight + Math.sin(elapsed * 1.55) * 0.008;
 
+    // A real clip, when there is one, owns the whole humanoid — the authored
+    // rig would only fight it. Everything else on this character (camera,
+    // stage placement, eye tracking, blinking) keeps running either way.
+    mixer?.update(dt);
+    const motionDriven = currentAction !== null;
+
     // Pose springs + idle layer.
     const steps = Math.max(1, Math.ceil(dt / MAX_STEP));
     const h = dt / steps;
 
     BONES.forEach((bone) => {
+      if (motionDriven) return;
       const node = boneNodes.get(bone);
       const state = poseState.get(bone);
       if (!node || !state) return;
@@ -759,7 +851,11 @@ async function start(stage: HTMLElement): Promise<void> {
     // Expressions: hold the scene's mood, and blink on top of it.
     const expressions = vrm!.expressionManager;
     if (expressions) {
-      ['happy', 'relaxed', 'sad', 'surprised'].forEach((name) => {
+      // A clip may animate the face itself, so the scene's mood is only held
+      // when the procedural rig is driving. Blinking stays on regardless —
+      // motion clips almost never carry it, and a character that never blinks
+      // reads as dead.
+      if (!motionDriven) ['happy', 'relaxed', 'sad', 'surprised'].forEach((name) => {
         // Held well below 1: at full weight the presets open the mouth wide,
         // which reads as a shout rather than an expression.
         const wanted = active.expression === name ? 0.4 : 0;
@@ -784,6 +880,10 @@ async function start(stage: HTMLElement): Promise<void> {
     renderer.render(scene, camera);
   }
 
+  // Fired off rather than awaited: the character should be on screen and
+  // moving immediately, and clips swap in the moment they arrive.
+  void loadMotions().catch((error) => console.warn('[lionk] motions skipped', error));
+
   renderer.setAnimationLoop(tick);
   stage.dataset.ready = 'true';
   document.documentElement.classList.add('lionk-on');
@@ -792,6 +892,8 @@ async function start(stage: HTMLElement): Promise<void> {
     destroy() {
       renderer.setAnimationLoop(null);
       window.clearTimeout(burstTimer);
+      mixer?.stopAllAction();
+      mixer = null;
       stage.classList.remove('is-burst');
       resizeObserver.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
