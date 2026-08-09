@@ -8,6 +8,11 @@
 ---
 
 <div class="lionk-stage" data-lionk aria-hidden="true">
+  <div class="lionk-burst">
+    <i class="lionk-burst-ring"></i>
+    <i class="lionk-burst-bar"></i>
+    <i class="lionk-burst-bar"></i>
+  </div>
   <canvas class="lionk-canvas" data-lionk-canvas></canvas>
   <p class="lionk-status" data-lionk-status hidden></p>
 
@@ -49,6 +54,84 @@
     display: block;
     width: 100%;
     height: 100%;
+    position: relative;
+  }
+
+  /* The graphic hit that lands behind the character when the slide changes:
+     a ring punching outward and two speed bars raking past. Fired by lionk.ts
+     via `.is-burst` on the stage. */
+  .lionk-burst {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .lionk-burst i {
+    position: absolute;
+    display: block;
+    opacity: 0;
+  }
+
+  .lionk-burst-ring {
+    top: 50%;
+    left: 50%;
+    width: 16rem;
+    height: 16rem;
+    margin: -8rem 0 0 -8rem;
+    border: 3px solid var(--color-accent);
+    border-radius: 50%;
+  }
+
+  .lionk-burst-bar {
+    left: -20%;
+    right: -20%;
+    height: 0.5rem;
+    background: var(--color-accent);
+    transform: skewY(-8deg);
+  }
+
+  .lionk-burst-bar:nth-of-type(2) {
+    top: 34%;
+  }
+
+  .lionk-burst-bar:nth-of-type(3) {
+    top: 62%;
+    height: 0.25rem;
+  }
+
+  .lionk-stage.is-burst .lionk-burst-ring {
+    animation: lionk-ring 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .lionk-stage.is-burst .lionk-burst-bar {
+    animation: lionk-bar 520ms cubic-bezier(0.72, 0, 0.16, 1) both;
+  }
+
+  .lionk-stage.is-burst .lionk-burst-bar:nth-of-type(3) {
+    animation-delay: 80ms;
+  }
+
+  @keyframes lionk-ring {
+    0% {
+      opacity: 0.75;
+      transform: scale(0.25);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.35);
+    }
+  }
+
+  @keyframes lionk-bar {
+    0% {
+      opacity: 0.85;
+      transform: skewY(-8deg) translateX(-115%);
+    }
+    100% {
+      opacity: 0;
+      transform: skewY(-8deg) translateX(115%);
+    }
   }
 
   .lionk-stage[data-off='true'] .lionk-canvas,

@@ -17,6 +17,10 @@ const HUES = [0, 18, -16, 28, -24, 12];
 
 let slides: HTMLElement[] = [];
 let rail: HTMLElement | null = null;
+let slash: HTMLElement | null = null;
+let slashTimer = 0;
+/** Guards the slash against firing for the initial slide, or for a repeat. */
+let lastSlashed = -1;
 let observer: IntersectionObserver | null = null;
 let currentIndex = 0;
 const ratios = new WeakMap<HTMLElement, number>();
@@ -25,11 +29,29 @@ function deckMain(): HTMLElement | null {
   return document.querySelector<HTMLElement>('main[data-deck]');
 }
 
+/** Cuts a pair of skewed bars across the screen, the way a game menu would. */
+function fireSlash(index: number): void {
+  if (!slash || reduce.matches || index === lastSlashed) return;
+  lastSlashed = index;
+
+  window.clearTimeout(slashTimer);
+  slash.classList.remove('is-firing');
+  // Reading layout between the remove and the add restarts the animation
+  // instead of letting the browser coalesce the two into no change at all.
+  void slash.offsetWidth;
+  slash.classList.add('is-firing');
+  slashTimer = window.setTimeout(() => slash?.classList.remove('is-firing'), 800);
+}
+
 function teardown(): void {
   observer?.disconnect();
   observer = null;
   rail?.remove();
   rail = null;
+  window.clearTimeout(slashTimer);
+  slash?.remove();
+  slash = null;
+  lastSlashed = -1;
   slides = [];
   document.documentElement.style.removeProperty('--deck-hue');
 }
@@ -54,6 +76,8 @@ function setCurrent(index: number): void {
   document.dispatchEvent(
     new CustomEvent('deck:change', { detail: { index, total: slides.length } }),
   );
+
+  fireSlash(index);
 }
 
 function goTo(index: number): void {
@@ -65,11 +89,21 @@ function goTo(index: number): void {
   setCurrent(clamped);
 }
 
-/** A short label for the dot's accessible name, taken from the slide heading. */
-function labelFor(slide: HTMLElement, i: number): string {
-  const heading = slide.querySelector('.eyebrow, h1, h2');
-  const text = heading?.textContent?.trim();
-  return text ? text.replace(/\s+/g, ' ').slice(0, 48) : `Slide ${i + 1}`;
+/**
+ * Picks the element whose text names the slide on its rail tab. Sections lead
+ * with a short eyebrow ("Tentang", "Proyek") that beats their full heading, but
+ * the hero's eyebrow is a whole job title, so take whichever reads shorter.
+ */
+function labelSourceFor(slide: HTMLElement): Element | null {
+  const candidates = [slide.querySelector('.eyebrow'), slide.querySelector('h1, h2')].filter(
+    (el): el is Element => !!el?.textContent?.trim(),
+  );
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, el) =>
+    (el.textContent as string).trim().length < (best.textContent as string).trim().length
+      ? el
+      : best,
+  );
 }
 
 function buildRail(): void {
@@ -78,11 +112,27 @@ function buildRail(): void {
   rail.setAttribute('aria-label', 'Slide navigation');
 
   slides.forEach((slide, i) => {
+    const source = labelSourceFor(slide);
+    const label = source?.textContent?.trim().replace(/\s+/g, ' ') ?? `Slide ${i + 1}`;
+
     const dot = document.createElement('button');
     dot.type = 'button';
-    dot.setAttribute('aria-label', labelFor(slide, i));
+    dot.setAttribute('aria-label', label);
     dot.setAttribute('aria-current', i === 0 ? 'true' : 'false');
     dot.addEventListener('click', () => goTo(i));
+
+    // The label sits in its own element so it can be counter-skewed against
+    // the slanted tab, and hidden outright when the rail is too narrow.
+    const text = document.createElement('span');
+    text.textContent = label;
+    // Carrying the translation attributes across means the language toggle
+    // retitles the rail along with everything else it owns.
+    if (source instanceof HTMLElement && source.dataset.i18nId) {
+      text.dataset.i18nId = source.dataset.i18nId;
+      if (source.dataset.i18nEn) text.dataset.i18nEn = source.dataset.i18nEn;
+    }
+    dot.appendChild(text);
+
     rail!.appendChild(dot);
   });
 
@@ -140,7 +190,23 @@ function init(): void {
   );
   if (slides.length === 0) return;
 
+  // Number each slide's elements in document order so the CSS can stagger
+  // their entrance without hard-coding one nth-child rule per component.
+  slides.forEach((slide) => {
+    slide
+      .querySelectorAll<HTMLElement>('.reveal, .project-card')
+      .forEach((el, i) => el.style.setProperty('--enter-index', String(i)));
+  });
+
+  slash = document.createElement('div');
+  slash.className = 'deck-slash';
+  slash.setAttribute('aria-hidden', 'true');
+  slash.append(document.createElement('span'), document.createElement('span'));
+  document.body.appendChild(slash);
+
   buildRail();
+  // The first slide arrives with the entrance cascade, not with a slash.
+  lastSlashed = 0;
   setCurrent(0);
 
   // The slide holding the largest share of the viewport is the active one.

@@ -291,6 +291,10 @@ async function start(stage: HTMLElement): Promise<void> {
   let reactionUntil = 0;
   let hopVelocity = 0;
   let hopHeight = 0;
+  /** While `elapsed` is below this, poses snap rather than blend. */
+  let snapUntil = 0;
+  let popAmount = 0;
+  let burstTimer = 0;
 
   // Pointer position in [-1, 1], smoothed toward the raw reading each frame.
   let pointerX = 0;
@@ -402,7 +406,20 @@ async function start(stage: HTMLElement): Promise<void> {
 
   function onDeckChange(event: Event): void {
     const detail = (event as CustomEvent<{ index?: number }>).detail;
-    if (typeof detail?.index === 'number') setScene(detail.index);
+    if (typeof detail?.index !== 'number') return;
+    setScene(detail.index);
+
+    // A game menu snaps its character into the new pose and punches the frame;
+    // it does not glide. The window below is what the tick loop reads to swap
+    // its smoothing for something much sharper.
+    snapUntil = elapsed + 0.42;
+    popAmount = 0.08;
+
+    window.clearTimeout(burstTimer);
+    stage.classList.remove('is-burst');
+    void stage.offsetWidth;
+    stage.classList.add('is-burst');
+    burstTimer = window.setTimeout(() => stage.classList.remove('is-burst'), 720);
   }
 
   window.addEventListener('pointermove', onPointerMove, { passive: true });
@@ -419,10 +436,19 @@ async function start(stage: HTMLElement): Promise<void> {
     aimY = damp(aimY, pointerY, 4, dt);
 
     const active = activeScene(elapsed);
+    // Right after a slide change everything moves several times faster, so the
+    // character lands in the new pose within a couple of frames.
+    const snapping = elapsed < snapUntil;
+    const placeRate = snapping ? 11 : 2.6;
+    const poseRate = snapping ? 20 : 5;
 
     // Stage placement.
-    root.position.x = damp(root.position.x, active.offsetX, 2.6, dt);
-    root.rotation.y = damp(root.rotation.y, active.turn + aimX * 0.1, 2.6, dt);
+    root.position.x = damp(root.position.x, active.offsetX, placeRate, dt);
+    root.rotation.y = damp(root.rotation.y, active.turn + aimX * 0.1, placeRate, dt);
+
+    // The punch that lands with the pose, decaying back to normal size.
+    popAmount = damp(popAmount, 0, 7, dt);
+    root.scale.setScalar(1 + popAmount);
 
     // Greeting hop, under gravity.
     hopVelocity -= 9 * dt;
@@ -436,9 +462,9 @@ async function start(stage: HTMLElement): Promise<void> {
       const state = poseState.get(bone);
       if (!node || !state) return;
       const target = active.pose[bone] ?? ZERO;
-      state[0] = damp(state[0], target[0], 5, dt);
-      state[1] = damp(state[1], target[1], 5, dt);
-      state[2] = damp(state[2], target[2], 5, dt);
+      state[0] = damp(state[0], target[0], poseRate, dt);
+      state[1] = damp(state[1], target[1], poseRate, dt);
+      state[2] = damp(state[2], target[2], poseRate, dt);
       idleFor(bone, elapsed, idleBuffer);
       node.rotation.set(
         state[0] + idleBuffer[0],
@@ -485,6 +511,8 @@ async function start(stage: HTMLElement): Promise<void> {
   runtime = {
     destroy() {
       renderer.setAnimationLoop(null);
+      window.clearTimeout(burstTimer);
+      stage.classList.remove('is-burst');
       resizeObserver.disconnect();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerDown);

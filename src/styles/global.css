@@ -268,10 +268,29 @@ html.lionk-on {
   --lionk-gutter: clamp(19rem, 26vw, 29rem);
 }
 
+/* Deck slides run between two reserved columns: the labelled rail on the left,
+   and — only while the character is actually on stage — its column on the
+   right. Both are fixed overlays, so the content has to step aside itself. */
 @media (min-width: 1100px) {
+  main[data-deck] > * {
+    --deck-rail-gutter: 12rem;
+    --deck-right-gutter: var(--space-md);
+    max-width: min(
+      var(--content-max),
+      calc(100vw - var(--deck-rail-gutter) - var(--deck-right-gutter))
+    );
+    margin-inline: var(--deck-rail-gutter) var(--deck-right-gutter);
+  }
+
   html.lionk-on main[data-deck] > * {
-    max-width: min(var(--content-max), calc(100vw - var(--lionk-gutter)));
-    margin-inline: auto var(--lionk-gutter);
+    --deck-right-gutter: var(--lionk-gutter);
+  }
+}
+
+/* Narrower than that the rail is bars only, but they still need clearance. */
+@media (max-width: 1099px) {
+  main[data-deck] > * {
+    padding-inline-start: 2.75rem;
   }
 }
 
@@ -285,79 +304,172 @@ html:has(main[data-deck]) .backdrop {
   filter: hue-rotate(var(--deck-hue, 0deg));
 }
 
-/* Grand entrance. Only the active slide's content is shown; everything
-   else waits off-stage, so navigating back and forth replays the reveal. */
+/* Grand entrance, in the language of a game menu: everything arrives from
+   off-stage at an angle, fast, one beat after another, and overshoots before
+   it settles square. Only the active slide shows its content, so navigating
+   back and forth replays the whole cascade. */
 @media (prefers-reduced-motion: no-preference) {
   main[data-deck] .reveal,
   main[data-deck] .project-card {
     opacity: 0;
-    transform: translateY(64px) scale(0.94);
-    filter: blur(14px);
-    transition: opacity 0.95s var(--ease-out-expo),
-      transform 0.95s var(--ease-out-expo), filter 0.95s var(--ease-out-expo);
     will-change: transform, opacity;
   }
 
   main[data-deck] .is-current .reveal,
   main[data-deck] .is-current .project-card {
-    opacity: 1;
-    transform: none;
-    filter: none;
+    animation: deck-enter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    /* deck.ts numbers the elements of each slide in document order. */
+    animation-delay: calc(var(--enter-index, 0) * 55ms);
   }
 
-  /* Stagger the project cards as they fly in. */
-  main[data-deck] .is-current .projects-grid > .project-card:nth-child(2) {
-    transition-delay: 140ms;
-  }
-  main[data-deck] .is-current .projects-grid > .project-card:nth-child(3) {
-    transition-delay: 280ms;
+  /* Headline blocks come in harder than the body around them. */
+  main[data-deck] .is-current h1,
+  main[data-deck] .is-current h2 {
+    animation: deck-enter-title 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--enter-index, 0) * 55ms + 40ms);
   }
 }
 
-/* Vertical slide rail — built by deck.ts, styled here. */
+@keyframes deck-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(84px, 22px, 0) skewX(-13deg) scale(0.96);
+  }
+  55% {
+    opacity: 1;
+  }
+  72% {
+    transform: translate3d(-9px, -3px, 0) skewX(2.5deg) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deck-enter-title {
+  0% {
+    opacity: 0;
+    transform: translate3d(-40px, 0, 0) skewX(9deg);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(6px, 0, 0) skewX(-1.5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The slash that cuts across the screen on every change of slide. Two skewed
+   bars, the second a beat behind the first, built and fired by deck.ts. */
+.deck-slash {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.deck-slash span {
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: 0;
+  width: 46vw;
+  transform: translateX(-170%) skewX(-14deg);
+  background: var(--color-accent);
+}
+
+.deck-slash span:nth-child(2) {
+  width: 22vw;
+  background: var(--color-text);
+  opacity: 0.9;
+}
+
+.deck-slash.is-firing span {
+  animation: deck-slash-sweep 560ms cubic-bezier(0.72, 0, 0.16, 1) both;
+}
+
+.deck-slash.is-firing span:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+@keyframes deck-slash-sweep {
+  0% {
+    transform: translateX(-170%) skewX(-14deg);
+  }
+  100% {
+    transform: translateX(280%) skewX(-14deg);
+  }
+}
+
+/* Vertical slide rail — built by deck.ts, styled here. Skewed tabs stacked
+   down the left edge; the active one shoves itself out of the stack. */
 .deck-rail {
   position: fixed;
-  left: var(--space-md);
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   z-index: 25;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  align-items: center;
+  gap: 0.4rem;
+  align-items: flex-start;
 }
 
 .deck-rail button {
-  width: 11px;
-  height: 11px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--color-on-backdrop-muted);
-  opacity: 0.4;
-  transition: opacity var(--duration-normal) var(--ease-out-expo),
-    transform var(--duration-normal) var(--ease-out-expo),
-    background-color var(--duration-normal) var(--ease-out-expo);
+  --tab-shift: -0.5rem;
+  display: block;
+  max-width: 11rem;
+  padding: 0.45rem 1.4rem 0.45rem 1.1rem;
+  border: none;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  color: var(--color-on-backdrop-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 0.7rem) 100%, 0 100%);
+  transform: skewX(-12deg) translateX(var(--tab-shift));
+  transition: transform var(--duration-normal) var(--ease-out-expo),
+    background-color var(--duration-normal) var(--ease-out-expo),
+    color var(--duration-normal) var(--ease-out-expo);
+}
+
+/* Counter-skew so the label itself stays upright inside the slanted tab. */
+.deck-rail button span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: skewX(12deg);
 }
 
 .deck-rail button:hover {
-  opacity: 0.8;
-  transform: scale(1.25);
+  --tab-shift: 0.1rem;
+  color: var(--color-text);
 }
 
 .deck-rail button[aria-current='true'] {
+  --tab-shift: 0.65rem;
   background: var(--color-accent);
-  opacity: 1;
-  transform: scale(1.5);
+  color: var(--color-accent-contrast);
   box-shadow: var(--glow-accent);
 }
 
-@media (max-width: 640px) {
-  .deck-rail {
-    left: 8px;
-    gap: 0.6rem;
-  }
+/* Too narrow for labels — fall back to the slanted bars alone. */
+@media (max-width: 1099px) {
   .deck-rail button {
-    width: 9px;
-    height: 9px;
+    width: 1.35rem;
+    padding: 0.4rem 0;
+    height: 0.85rem;
+  }
+
+  .deck-rail button span {
+    display: none;
   }
 }
