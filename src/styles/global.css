@@ -474,6 +474,17 @@ html:has(main[data-deck]) .backdrop {
   will-change: transform;
 }
 
+/* The guarantee. Each variant below also parks its panels off-screen, but a
+   panel whose resting transform is wrong covers the whole page the moment the
+   animation is taken away — so nothing is painted at all unless a cut is
+   actually running. This is what was leaving `bars` and `wedge` frozen across
+   the page after a transition, since neither parked itself off-screen.
+   `!important` because the variant selectors below are more specific, and this
+   has to win against every one of them. */
+.deck-fx:not(.is-firing) span {
+  display: none !important;
+}
+
 /* Panel ordinal, shared by every variant for offsets and stagger delays. */
 .deck-fx span:nth-child(1) {
   --n: 0;
@@ -542,11 +553,13 @@ html:has(main[data-deck]) .backdrop {
 
 .deck-fx[data-fx='wedge'] span:nth-child(1) {
   clip-path: polygon(0 0, 100% 0, 0 100%);
+  transform: translate(-110%, -110%);
 }
 
 .deck-fx[data-fx='wedge'] span:nth-child(2) {
   background: var(--color-text);
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  transform: translate(110%, 110%);
 }
 
 .deck-fx[data-fx='wedge'].is-firing span:nth-child(1) {
@@ -564,6 +577,11 @@ html:has(main[data-deck]) .backdrop {
   right: -12%;
   height: calc(100% / 5 + 1px);
   top: calc(var(--n) * 100% / 5);
+  transform: translateX(-118%);
+}
+
+.deck-fx[data-fx='bars'] span:nth-child(even) {
+  transform: translateX(118%);
 }
 
 .deck-fx[data-fx='bars'] span:nth-child(even) {

@@ -24,8 +24,10 @@ const PREF_KEY = 'lionk-visible';
 
 /** The subset of the humanoid rig we animate. */
 const BONES = [
+  'hips',
   'spine',
   'chest',
+  'upperChest',
   'neck',
   'head',
   'leftShoulder',
@@ -36,6 +38,12 @@ const BONES = [
   'rightUpperArm',
   'rightLowerArm',
   'rightHand',
+  'leftUpperLeg',
+  'leftLowerLeg',
+  'leftFoot',
+  'rightUpperLeg',
+  'rightLowerLeg',
+  'rightFoot',
 ] as const;
 
 type BoneKey = (typeof BONES)[number];
@@ -54,6 +62,47 @@ const ARMS_DOWN: Pose = {
 };
 
 /**
+ * Contrapposto — weight carried on one leg, the other loose and slightly
+ * forward, pelvis tilted and the shoulders counter-tilted against it. Standing
+ * square on both legs is what makes a rigged character read as a mannequin,
+ * and no amount of arm posing above it fixes that.
+ *
+ * Every scene is built on one of these two and slowly drifts between them, so
+ * the character keeps shifting its weight instead of holding a frozen shape.
+ * Feet counter-rotate against the sum of the leg joints to stay flat.
+ */
+const STAND_A: Pose = {
+  ...ARMS_DOWN,
+  hips: [0, 0, 0.038],
+  spine: [0, 0.05, -0.022],
+  chest: [-0.02, 0.04, -0.018],
+  neck: [0.02, -0.03, 0.02],
+  leftUpperLeg: [0.02, 0, -0.03],
+  leftLowerLeg: [0.05, 0, 0],
+  leftFoot: [-0.07, 0, 0],
+  rightUpperLeg: [-0.14, 0, 0.09],
+  rightLowerLeg: [0.28, 0, 0],
+  rightFoot: [-0.14, 0, 0],
+};
+
+const STAND_B: Pose = {
+  ...ARMS_DOWN,
+  hips: [0, 0, -0.038],
+  spine: [0, -0.04, 0.022],
+  chest: [-0.02, -0.03, 0.018],
+  neck: [0.02, 0.03, -0.02],
+  rightUpperLeg: [0.02, 0, 0.03],
+  rightLowerLeg: [0.05, 0, 0],
+  rightFoot: [-0.07, 0, 0],
+  leftUpperLeg: [-0.14, 0, -0.09],
+  leftLowerLeg: [0.28, 0, 0],
+  leftFoot: [-0.14, 0, 0],
+};
+
+/** How fast a scene drifts between its two pose keys, in radians per second. */
+const SHIFT_SPEED = 0.78;
+
+/**
  * Where the camera sits for a scene. A short lens far back reads as a calm
  * portrait; a very wide one pushed close gives the barrel-ish, foreshortened
  * look of a fisheye — it is real perspective rather than a lens distortion
@@ -70,6 +119,8 @@ interface CameraRig {
 
 interface Scene {
   pose: Pose;
+  /** The scene's second key; the character drifts between the two forever. */
+  poseB: Pose;
   /** VRM expression preset to hold while this scene is active. */
   expression: string | null;
   /** Stage position in metres; positive moves toward the right edge. */
@@ -88,12 +139,26 @@ interface Scene {
 const SCENES: Scene[] = [
   // Hero — waving hello, facing the visitor.
   {
+    // Waving high, the other hand dropped to the hip.
     pose: {
-      ...ARMS_DOWN,
-      rightUpperArm: [0, 0, 0.5],
-      rightLowerArm: [0, 0, -1.35],
-      rightHand: [0, 0, -0.2],
-      head: [0, 0, 0.04],
+      ...STAND_A,
+      rightUpperArm: [0, 0, 0.4],
+      rightLowerArm: [0, -0.15, -1.45],
+      rightHand: [0, 0, -0.25],
+      leftUpperArm: [0.1, 0, -1.05],
+      leftLowerArm: [0, -0.85, -0.55],
+      leftHand: [0, 0, 0.2],
+      head: [0, -0.06, 0.07],
+    },
+    poseB: {
+      ...STAND_B,
+      rightUpperArm: [0, 0, 0.28],
+      rightLowerArm: [0, -0.1, -1.56],
+      rightHand: [0, 0, -0.18],
+      leftUpperArm: [0.13, 0, -1.12],
+      leftLowerArm: [0, -0.95, -0.5],
+      leftHand: [0, 0, 0.24],
+      head: [0.03, 0.04, 0.03],
     },
     expression: 'happy',
     offsetX: 0.04,
@@ -103,12 +168,22 @@ const SCENES: Scene[] = [
   },
   // About — relaxed, listening, turned toward the copy.
   {
+    // One arm folded across the body, the other loose — listening.
     pose: {
-      ...ARMS_DOWN,
-      leftUpperArm: [0.1, 0, -1.05],
-      leftLowerArm: [0, -0.55, -0.35],
-      spine: [0, -0.06, 0],
-      head: [0.03, 0, -0.05],
+      ...STAND_A,
+      leftUpperArm: [0.12, 0, -1.02],
+      leftLowerArm: [0, -1.15, -0.35],
+      rightUpperArm: [0.06, 0, 1.18],
+      rightLowerArm: [0, 0.6, 0.25],
+      head: [0.05, 0.02, -0.1],
+    },
+    poseB: {
+      ...STAND_B,
+      leftUpperArm: [0.15, 0, -1.08],
+      leftLowerArm: [0, -1.3, -0.26],
+      rightUpperArm: [0.08, 0, 1.1],
+      rightLowerArm: [0, 0.76, 0.32],
+      head: [0.01, -0.05, -0.04],
     },
     expression: 'relaxed',
     offsetX: 0,
@@ -118,14 +193,24 @@ const SCENES: Scene[] = [
   },
   // Skills — hand near the chin, thinking it over.
   {
+    // Hand at the chin, the other arm tucked under it, tapping as it thinks.
     pose: {
-      ...ARMS_DOWN,
-      rightUpperArm: [0.1, 0, 0.95],
-      rightLowerArm: [0, -0.35, -1.85],
-      rightHand: [0, 0, -0.25],
-      leftUpperArm: [0.1, 0, -1.12],
-      leftLowerArm: [0, -0.75, -0.3],
-      head: [0.06, 0, 0.07],
+      ...STAND_A,
+      rightUpperArm: [0.15, 0, 0.92],
+      rightLowerArm: [0, -0.45, -1.9],
+      rightHand: [0.2, 0, -0.3],
+      leftUpperArm: [0.12, 0, -1.15],
+      leftLowerArm: [0, -1.25, -0.3],
+      head: [0.07, 0.06, 0.09],
+    },
+    poseB: {
+      ...STAND_B,
+      rightUpperArm: [0.18, 0, 0.86],
+      rightLowerArm: [0, -0.33, -2.02],
+      rightHand: [0.38, 0, -0.24],
+      leftUpperArm: [0.14, 0, -1.18],
+      leftLowerArm: [0, -1.35, -0.24],
+      head: [0.02, -0.05, 0.12],
     },
     expression: null,
     offsetX: 0,
@@ -135,13 +220,28 @@ const SCENES: Scene[] = [
   },
   // Projects — presenting the work to its left, where the cards are.
   {
+    // Presenting the work, torso opened toward it, gesture sweeping.
     pose: {
-      ...ARMS_DOWN,
-      rightUpperArm: [0, 0.55, 0.72],
-      rightLowerArm: [0, 0.5, -0.15],
-      rightHand: [0, 0.2, 0],
-      leftUpperArm: [0.1, 0, -1.1],
-      head: [0, -0.12, 0],
+      ...STAND_A,
+      rightUpperArm: [0, 0.6, 0.62],
+      rightLowerArm: [0, 0.45, -0.2],
+      rightHand: [0, 0.25, 0],
+      leftUpperArm: [0.1, 0, -1.08],
+      leftLowerArm: [0, -0.7, -0.4],
+      spine: [0, -0.12, -0.02],
+      chest: [-0.05, -0.1, -0.02],
+      head: [0, -0.14, 0.02],
+    },
+    poseB: {
+      ...STAND_B,
+      rightUpperArm: [0, 0.74, 0.44],
+      rightLowerArm: [0, 0.34, -0.36],
+      rightHand: [0, 0.32, 0],
+      leftUpperArm: [0.13, 0, -1.12],
+      leftLowerArm: [0, -0.8, -0.34],
+      spine: [0, -0.18, 0.02],
+      chest: [-0.03, -0.14, 0.02],
+      head: [0.03, -0.19, 0.05],
     },
     expression: 'happy',
     offsetX: 0.05,
@@ -151,13 +251,28 @@ const SCENES: Scene[] = [
   },
   // Contact — both arms open, welcoming.
   {
+    // Both arms open, leaning in slightly — the sign-off.
     pose: {
-      ...ARMS_DOWN,
-      leftUpperArm: [0, -0.3, -0.95],
-      leftLowerArm: [0, -0.85, -0.2],
-      rightUpperArm: [0, 0.3, 0.95],
-      rightLowerArm: [0, 0.85, 0.2],
-      chest: [-0.04, 0, 0],
+      ...STAND_A,
+      leftUpperArm: [0, -0.35, -0.88],
+      leftLowerArm: [0, -0.95, -0.22],
+      leftHand: [0, 0, 0.15],
+      rightUpperArm: [0, 0.35, 0.88],
+      rightLowerArm: [0, 0.95, 0.22],
+      rightHand: [0, 0, -0.15],
+      chest: [-0.07, 0, 0],
+      head: [-0.05, 0.03, 0.02],
+    },
+    poseB: {
+      ...STAND_B,
+      leftUpperArm: [0, -0.26, -0.74],
+      leftLowerArm: [0, -1.05, -0.16],
+      leftHand: [0, 0, 0.22],
+      rightUpperArm: [0, 0.26, 0.74],
+      rightLowerArm: [0, 1.05, 0.16],
+      rightHand: [0, 0, -0.22],
+      chest: [-0.03, 0, 0],
+      head: [-0.01, -0.03, -0.02],
     },
     expression: 'happy',
     offsetX: 0,
@@ -173,13 +288,22 @@ const SCENES: Scene[] = [
  */
 const GREET: Omit<Scene, 'cam'> = {
   pose: {
-    ...ARMS_DOWN,
+    ...STAND_A,
     leftUpperArm: [0, 0, -0.45],
     leftLowerArm: [0, 0, 1.3],
     rightUpperArm: [0, 0, 0.45],
     rightLowerArm: [0, 0, -1.3],
     head: [-0.1, 0, 0],
     chest: [-0.08, 0, 0],
+  },
+  poseB: {
+    ...STAND_B,
+    leftUpperArm: [0, 0, -0.32],
+    leftLowerArm: [0, 0, 1.42],
+    rightUpperArm: [0, 0, 0.32],
+    rightLowerArm: [0, 0, -1.42],
+    head: [-0.14, 0, 0],
+    chest: [-0.11, 0, 0],
   },
   expression: 'happy',
   offsetX: 0,
@@ -473,6 +597,8 @@ async function start(stage: HTMLElement): Promise<void> {
     const active = activeScene(elapsed);
     // Right after a slide change everything moves several times faster, so the
     // character lands in the new pose within a couple of frames.
+    // 0..1 and back, forever: the weight shift that keeps a held pose alive.
+    const shift = 0.5 - 0.5 * Math.cos(elapsed * SHIFT_SPEED);
     const snapping = elapsed < snapUntil;
     const placeRate = snapping ? 11 : 2.6;
     const poseRate = snapping ? 20 : 5;
@@ -496,10 +622,11 @@ async function start(stage: HTMLElement): Promise<void> {
       const node = boneNodes.get(bone);
       const state = poseState.get(bone);
       if (!node || !state) return;
-      const target = active.pose[bone] ?? ZERO;
-      state[0] = damp(state[0], target[0], poseRate, dt);
-      state[1] = damp(state[1], target[1], poseRate, dt);
-      state[2] = damp(state[2], target[2], poseRate, dt);
+      const a = active.pose[bone] ?? ZERO;
+      const b = active.poseB[bone] ?? a;
+      state[0] = damp(state[0], a[0] + (b[0] - a[0]) * shift, poseRate, dt);
+      state[1] = damp(state[1], a[1] + (b[1] - a[1]) * shift, poseRate, dt);
+      state[2] = damp(state[2], a[2] + (b[2] - a[2]) * shift, poseRate, dt);
       idleFor(bone, elapsed, idleBuffer);
       node.rotation.set(
         state[0] + idleBuffer[0],
