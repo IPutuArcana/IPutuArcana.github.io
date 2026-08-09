@@ -249,8 +249,30 @@ main[data-deck] > * {
   scroll-snap-stop: always;
   /* Deck slides read as distinct scenes, not a ruled document. */
   border-top: none !important;
-  padding-block: clamp(6rem, 12vh, 9rem);
+  padding-block: clamp(3.5rem, 8vh, 7rem);
   overflow: clip;
+}
+
+/* A slide has to land in one screen, so on shorter viewports the featured
+   project gives up its double-width column and all three cards share a row. */
+@media (max-height: 950px) {
+  main[data-deck] .project-card.featured {
+    grid-column: span 1;
+  }
+}
+
+/* When the 3D character is actually on stage (the class is set by lionk.ts only
+   after the model renders), the deck gives up its right-hand column so the two
+   never overlap. Without the class the deck lays out exactly as before. */
+html.lionk-on {
+  --lionk-gutter: clamp(19rem, 26vw, 29rem);
+}
+
+@media (min-width: 1100px) {
+  html.lionk-on main[data-deck] > * {
+    max-width: min(var(--content-max), calc(100vw - var(--lionk-gutter)));
+    margin-inline: auto var(--lionk-gutter);
+  }
 }
 
 /* The mood of the backdrop shifts from slide to slide. */

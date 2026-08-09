@@ -47,6 +47,13 @@ function setCurrent(index: number): void {
   }
 
   document.documentElement.style.setProperty('--deck-hue', `${HUES[index % HUES.length]}deg`);
+
+  // Anything that wants to stage itself per slide — the 3D character in
+  // `lionk.ts`, for one — listens for this instead of duplicating the
+  // intersection bookkeeping.
+  document.dispatchEvent(
+    new CustomEvent('deck:change', { detail: { index, total: slides.length } }),
+  );
 }
 
 function goTo(index: number): void {

@@ -1,0 +1,121 @@
+---
+// The stage the VRM character is rendered into. Markup only — everything that
+// moves lives in `src/scripts/lionk.ts`, which is what decides whether the
+// 15 MB model is worth downloading for this visitor at all.
+//
+// The stage itself never takes pointer events, so the deck underneath keeps
+// working normally; only the small toggle button is clickable.
+---
+
+<div class="lionk-stage" data-lionk aria-hidden="true">
+  <canvas class="lionk-canvas" data-lionk-canvas></canvas>
+  <p class="lionk-status" data-lionk-status hidden></p>
+
+  <button type="button" class="lionk-toggle" data-lionk-toggle aria-pressed="true" hidden>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+      <circle cx="12" cy="8.5" r="3.6" stroke="currentColor" stroke-width="1.6"></circle>
+      <path
+        d="M4.8 20c.6-3.9 3.6-6 7.2-6s6.6 2.1 7.2 6"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"></path>
+    </svg>
+  </button>
+</div>
+
+<style>
+  .lionk-stage {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    height: 100dvh;
+    width: clamp(20rem, 27vw, 30rem);
+    z-index: 3;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(2rem);
+    transition:
+      opacity 1.4s var(--ease-out-expo),
+      transform 1.4s var(--ease-out-expo);
+  }
+
+  /* Set by the script once the model is on screen. */
+  .lionk-stage[data-ready='true'] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .lionk-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .lionk-stage[data-off='true'] .lionk-canvas,
+  .lionk-stage[data-off='true'] .lionk-status {
+    display: none;
+  }
+
+  .lionk-status {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 3.4rem;
+    text-align: center;
+    font-size: var(--text-sm);
+    letter-spacing: 0.14em;
+    color: var(--color-text-muted);
+    opacity: 0.75;
+  }
+
+  .lionk-toggle {
+    position: absolute;
+    right: var(--space-md);
+    /* Stacked above the back-to-top FAB, which owns the bottom-right corner. */
+    bottom: calc(var(--space-md) + 3.75rem);
+    pointer-events: auto;
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    border: var(--rule-width) solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    color: var(--color-text-muted);
+    opacity: 0.45;
+    transition:
+      opacity var(--duration-fast) var(--ease-out-expo),
+      color var(--duration-fast) var(--ease-out-expo),
+      border-color var(--duration-fast) var(--ease-out-expo);
+  }
+
+  .lionk-toggle:hover,
+  .lionk-toggle:focus-visible {
+    opacity: 1;
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  .lionk-stage[data-off='true'] {
+    opacity: 1;
+    transform: none;
+    width: 6rem;
+  }
+
+  /* The stage only makes sense once there is room beside the deck content —
+     this matches the MIN_VIEWPORT guard in the script. */
+  @media (max-width: 1099px) {
+    .lionk-stage {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lionk-stage {
+      display: none;
+    }
+  }
+</style>
+
+<script src="../scripts/lionk.ts"></script>
