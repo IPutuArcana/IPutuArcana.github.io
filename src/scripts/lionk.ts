@@ -103,6 +103,53 @@ const STAND_B: Pose = {
 const SHIFT_SPEED = 0.78;
 
 /**
+ * Overlapping action. A body does not move as one piece: the hips lead, the
+ * chest follows, the head arrives last, and a hand trails further still. Each
+ * bone gets a rate multiplier — heavier and closer to the root means faster to
+ * arrive, further out along a limb means more lag — and that spread alone is
+ * most of the difference between a rig that moves and a rig that snaps.
+ */
+const BONE_LAG: Record<BoneKey, number> = {
+  hips: 1.35,
+  spine: 1.15,
+  chest: 1.0,
+  upperChest: 0.9,
+  neck: 0.76,
+  head: 0.62,
+  leftShoulder: 0.95,
+  leftUpperArm: 0.8,
+  leftLowerArm: 0.58,
+  leftHand: 0.42,
+  rightShoulder: 0.95,
+  rightUpperArm: 0.8,
+  rightLowerArm: 0.58,
+  rightHand: 0.42,
+  leftUpperLeg: 1.1,
+  leftLowerLeg: 0.85,
+  leftFoot: 0.66,
+  rightUpperLeg: 1.1,
+  rightLowerLeg: 0.85,
+  rightFoot: 0.66,
+};
+
+/** Base angular frequency of the joint springs, in radians per second. */
+const BASE_OMEGA = 8.5;
+/** Integration step for the springs; anything longer can go unstable. */
+const MAX_STEP = 1 / 90;
+
+/**
+ * The weight-shift cycle. A plain cosine is the giveaway of a procedural rig —
+ * it is always moving, at an even speed, forever. People hold a stance, then
+ * change it fairly quickly, then hold again. Smoothstepping a triangle wave
+ * gives exactly that: long dwells at both ends, a brisk move between them.
+ */
+function weightShift(t: number): number {
+  const p = (((t / (Math.PI * 2)) % 1) + 1) % 1;
+  const tri = p < 0.5 ? p * 2 : 2 - p * 2;
+  return tri * tri * (3 - 2 * tri);
+}
+
+/**
  * Where the camera sits for a scene. A short lens far back reads as a calm
  * portrait; a very wide one pushed close gives the barrel-ish, foreshortened
  * look of a fisheye — it is real perspective rather than a lens distortion
@@ -437,8 +484,11 @@ async function start(stage: HTMLElement): Promise<void> {
     if (node) boneNodes.set(bone, node);
   });
 
-  const poseState = new Map<BoneKey, [number, number, number]>();
-  BONES.forEach((bone) => poseState.set(bone, [0, 0, 0]));
+  // Per bone: three angles followed by their three angular velocities. The
+  // velocity is what buys follow-through — an exponential ease can only creep
+  // up on its target, while a spring carries past it and settles back.
+  const poseState = new Map<BoneKey, Float32Array>();
+  BONES.forEach((bone) => poseState.set(bone, new Float32Array(6)));
 
   if (import.meta.env.DEV) {
     // Poses are authored by eye; this is the handle used to check them.
@@ -460,6 +510,9 @@ async function start(stage: HTMLElement): Promise<void> {
   let pointerY = 0;
   let aimX = 0;
   let aimY = 0;
+  /** The same aim, deliberately lagged, so the head trails the eyes. */
+  let headAimX = 0;
+  let headAimY = 0;
 
   let blinkNext = 1.5;
   let blinkPhase = -1;
@@ -478,8 +531,11 @@ async function start(stage: HTMLElement): Promise<void> {
 
   /** Breathing, weight shift and arm sway, layered on top of the posed values. */
   function idleFor(bone: BoneKey, t: number, out: [number, number, number]): void {
-    const breath = Math.sin(t * 1.55);
-    const sway = Math.sin(t * 0.85);
+    // Breathing in is quicker than breathing out. Warping the phase of the
+    // sine gives that asymmetry without the kink a piecewise curve would have.
+    const breath = Math.sin(t * 1.45 + 0.4 * Math.sin(t * 1.45));
+    // Two slow waves that never line up, so the idle never audibly loops.
+    const sway = Math.sin(t * 0.83) * 0.62 + Math.sin(t * 0.37) * 0.38;
     out[0] = 0;
     out[1] = 0;
     out[2] = 0;
@@ -492,14 +548,18 @@ async function start(stage: HTMLElement): Promise<void> {
         out[2] = sway * 0.022;
         out[0] = breath * 0.012;
         break;
+      case 'head':
+        // The eyes get there first and the head follows — `headAim` trails the
+        // pointer well behind the look-at target. Leading with the head is one
+        // of the tells that a character is being driven by a cursor.
+        out[1] = headAimX * 0.3;
+        out[0] = -headAimY * 0.18 + Math.sin(t * 0.6) * 0.015;
+        out[2] = headAimX * 0.06 + sway * 0.012;
+        break;
       case 'neck':
         out[0] = -breath * 0.018;
+        out[1] = headAimX * 0.12;
         out[2] = sway * 0.02;
-        break;
-      case 'head':
-        // The head leads the eyes toward the pointer.
-        out[1] = aimX * 0.26;
-        out[0] = -aimY * 0.16 + Math.sin(t * 0.6) * 0.015;
         break;
       case 'leftUpperArm':
         out[2] = -sway * 0.035;
@@ -593,15 +653,14 @@ async function start(stage: HTMLElement): Promise<void> {
 
     aimX = damp(aimX, pointerX, 4, dt);
     aimY = damp(aimY, pointerY, 4, dt);
+    headAimX = damp(headAimX, aimX, 1.7, dt);
+    headAimY = damp(headAimY, aimY, 1.7, dt);
 
     const active = activeScene(elapsed);
     // Right after a slide change everything moves several times faster, so the
     // character lands in the new pose within a couple of frames.
-    // 0..1 and back, forever: the weight shift that keeps a held pose alive.
-    const shift = 0.5 - 0.5 * Math.cos(elapsed * SHIFT_SPEED);
     const snapping = elapsed < snapUntil;
     const placeRate = snapping ? 11 : 2.6;
-    const poseRate = snapping ? 20 : 5;
 
     // Stage placement.
     root.position.x = damp(root.position.x, active.offsetX, placeRate, dt);
@@ -617,16 +676,42 @@ async function start(stage: HTMLElement): Promise<void> {
     if (hopHeight === 0 && hopVelocity < 0) hopVelocity = 0;
     root.position.y = hopHeight + Math.sin(elapsed * 1.55) * 0.008;
 
-    // Pose blend + idle layer.
+    // Pose springs + idle layer.
+    const steps = Math.max(1, Math.ceil(dt / MAX_STEP));
+    const h = dt / steps;
+
     BONES.forEach((bone) => {
       const node = boneNodes.get(bone);
       const state = poseState.get(bone);
       if (!node || !state) return;
+
       const a = active.pose[bone] ?? ZERO;
       const b = active.poseB[bone] ?? a;
-      state[0] = damp(state[0], a[0] + (b[0] - a[0]) * shift, poseRate, dt);
-      state[1] = damp(state[1], a[1] + (b[1] - a[1]) * shift, poseRate, dt);
-      state[2] = damp(state[2], a[2] + (b[2] - a[2]) * shift, poseRate, dt);
+      const lag = BONE_LAG[bone];
+
+      // The weight shift itself travels outward through the body rather than
+      // happening everywhere at once, so the hips commit before the head does.
+      const blend = weightShift(elapsed * SHIFT_SPEED - (1 - lag) * 0.6);
+
+      // Extremities are left looser than the core: a hand keeps swinging after
+      // the shoulder has stopped, which is the whole point of follow-through.
+      const omega = BASE_OMEGA * lag * (snapping ? 2.4 : 1);
+      const zeta = lag > 0.9 ? 0.85 : 0.54;
+      const k = omega * omega;
+      const c = 2 * zeta * omega;
+
+      for (let axis = 0; axis < 3; axis += 1) {
+        const target = a[axis] + (b[axis] - a[axis]) * blend;
+        let x = state[axis];
+        let v = state[axis + 3];
+        for (let step = 0; step < steps; step += 1) {
+          v += (k * (target - x) - c * v) * h;
+          x += v * h;
+        }
+        state[axis] = x;
+        state[axis + 3] = v;
+      }
+
       idleFor(bone, elapsed, idleBuffer);
       node.rotation.set(
         state[0] + idleBuffer[0],
