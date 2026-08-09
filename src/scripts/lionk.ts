@@ -53,6 +53,21 @@ const ARMS_DOWN: Pose = {
   rightLowerArm: [0, 0.18, 0.14],
 };
 
+/**
+ * Where the camera sits for a scene. A short lens far back reads as a calm
+ * portrait; a very wide one pushed close gives the barrel-ish, foreshortened
+ * look of a fisheye — it is real perspective rather than a lens distortion
+ * shader, but at 80° and half a metre out it reads the same way.
+ */
+interface CameraRig {
+  pos: Triple;
+  look: Triple;
+  /** Vertical field of view in degrees. Roughly 30 = portrait, 85 = fisheye. */
+  fov: number;
+  /** Dutch tilt in radians — the camera rolling off the horizontal. */
+  roll: number;
+}
+
 interface Scene {
   pose: Pose;
   /** VRM expression preset to hold while this scene is active. */
@@ -61,6 +76,7 @@ interface Scene {
   offsetX: number;
   /** Body angle in radians; negative turns the character toward the content. */
   turn: number;
+  cam: CameraRig;
 }
 
 /**
@@ -80,8 +96,10 @@ const SCENES: Scene[] = [
       head: [0, 0, 0.04],
     },
     expression: 'happy',
-    offsetX: 0.06,
+    offsetX: 0.04,
     turn: -0.16,
+    // Low and wide, looking up: the shot a game gives its lead.
+    cam: { pos: [0.48, 0.6, 2.05], look: [0, 1.16, 0], fov: 62, roll: -0.07 },
   },
   // About — relaxed, listening, turned toward the copy.
   {
@@ -95,6 +113,8 @@ const SCENES: Scene[] = [
     expression: 'relaxed',
     offsetX: 0,
     turn: -0.34,
+    // Long lens, high three-quarter — the deck's one calm frame.
+    cam: { pos: [-0.6, 1.92, 2.55], look: [0, 1.04, 0], fov: 32, roll: 0.05 },
   },
   // Skills — hand near the chin, thinking it over.
   {
@@ -108,8 +128,10 @@ const SCENES: Scene[] = [
       head: [0.06, 0, 0.07],
     },
     expression: null,
-    offsetX: 0.1,
+    offsetX: 0,
     turn: -0.28,
+    // Right up against the face, lens wide open and tilted hard over.
+    cam: { pos: [0.32, 1.44, 0.66], look: [0, 1.33, 0], fov: 76, roll: -0.15 },
   },
   // Projects — presenting the work to its left, where the cards are.
   {
@@ -122,8 +144,10 @@ const SCENES: Scene[] = [
       head: [0, -0.12, 0],
     },
     expression: 'happy',
-    offsetX: 0.14,
+    offsetX: 0.05,
     turn: -0.44,
+    // Worm's eye from below, very wide — the character towers over the frame.
+    cam: { pos: [-0.7, 0.3, 1.45], look: [0.04, 1.22, 0], fov: 84, roll: 0.13 },
   },
   // Contact — both arms open, welcoming.
   {
@@ -138,11 +162,16 @@ const SCENES: Scene[] = [
     expression: 'happy',
     offsetX: 0,
     turn: -0.1,
+    // All the way back for the sign-off, the whole figure in frame.
+    cam: { pos: [0, 1.05, 3.85], look: [0, 1.0, 0], fov: 30, roll: -0.04 },
   },
 ];
 
-/** Played for a couple of seconds when the character is clicked. */
-const GREET: Scene = {
+/**
+ * Played for a couple of seconds when the character is clicked. It carries no
+ * camera of its own — a click should not yank the framing away from the slide.
+ */
+const GREET: Omit<Scene, 'cam'> = {
   pose: {
     ...ARMS_DOWN,
     leftUpperArm: [0, 0, -0.45],
@@ -216,9 +245,15 @@ async function start(stage: HTMLElement): Promise<void> {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 30);
-  camera.position.set(0, 1.05, 4.3);
-  camera.lookAt(0, 0.98, 0);
+  const opening = SCENES[0].cam;
+  const camera = new THREE.PerspectiveCamera(opening.fov, 1, 0.05, 30);
+
+  // The live rig, eased toward whichever scene is active. Seeded from the
+  // first scene so the deck opens already framed instead of swinging in.
+  const camPos = new THREE.Vector3(...opening.pos);
+  const camLook = new THREE.Vector3(...opening.look);
+  let camFov = opening.fov;
+  let camRoll = opening.roll;
 
   // MToon shades from real lights, so the character picks up the page's mood:
   // a warm key from the content side, a cool violet rim from behind.
@@ -308,7 +343,7 @@ async function start(stage: HTMLElement): Promise<void> {
   let lastFrame = performance.now() / 1000;
   let elapsed = 0;
 
-  function activeScene(now: number): Scene {
+  function activeScene(now: number): Omit<Scene, 'cam'> {
     return now < reactionUntil ? GREET : current;
   }
 
@@ -473,8 +508,41 @@ async function start(stage: HTMLElement): Promise<void> {
       );
     });
 
-    // Eyes track the pointer through the VRM look-at rig.
-    lookTarget.position.set(aimX * 1.2, 1.45 + aimY * 0.55, 3.0);
+    // Camera rig. `placeRate` is the same snap the pose uses, so the framing
+    // lands with the pose rather than drifting in behind it.
+    const rig = current.cam;
+    camPos.x = damp(camPos.x, rig.pos[0], placeRate, dt);
+    camPos.y = damp(camPos.y, rig.pos[1], placeRate, dt);
+    camPos.z = damp(camPos.z, rig.pos[2], placeRate, dt);
+    camLook.x = damp(camLook.x, rig.look[0], placeRate, dt);
+    camLook.y = damp(camLook.y, rig.look[1], placeRate, dt);
+    camLook.z = damp(camLook.z, rig.look[2], placeRate, dt);
+    camRoll = damp(camRoll, rig.roll, placeRate, dt);
+
+    const nextFov = damp(camFov, rig.fov, placeRate, dt);
+    if (Math.abs(nextFov - camFov) > 0.002) {
+      camFov = nextFov;
+      camera.fov = camFov;
+      camera.updateProjectionMatrix();
+    }
+
+    // A slow drift keeps even the held frames from looking like a still.
+    camera.position.set(
+      camPos.x + Math.sin(elapsed * 0.31) * 0.035,
+      camPos.y + Math.sin(elapsed * 0.24) * 0.025,
+      camPos.z,
+    );
+    camera.lookAt(camLook);
+    // Applied after the aim, so it rolls the frame rather than swinging it.
+    camera.rotateZ(camRoll);
+
+    // Eyes track the pointer, and the pointer stands in for the viewer — so
+    // the target rides just in front of wherever the camera has moved to.
+    lookTarget.position.set(
+      camPos.x + aimX * 0.9,
+      camPos.y + 0.12 + aimY * 0.45,
+      camPos.z + 0.35,
+    );
 
     // Expressions: hold the scene's mood, and blink on top of it.
     const expressions = vrm!.expressionManager;

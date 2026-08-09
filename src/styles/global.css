@@ -317,9 +317,25 @@ html:has(main[data-deck]) .backdrop {
 
   main[data-deck] .is-current .reveal,
   main[data-deck] .is-current .project-card {
-    animation: deck-enter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: var(--deck-enter-name, deck-enter) 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
     /* deck.ts numbers the elements of each slide in document order. */
     animation-delay: calc(var(--enter-index, 0) * 55ms);
+  }
+
+  /* Each slide keeps its own entrance direction, assigned once by deck.ts, so
+     moving through the deck never plays the same move twice in a row. The
+     custom property inherits, which is how it reaches the elements above. */
+  main[data-deck] > [data-enter='left'] {
+    --deck-enter-name: deck-enter-left;
+  }
+  main[data-deck] > [data-enter='up'] {
+    --deck-enter-name: deck-enter-up;
+  }
+  main[data-deck] > [data-enter='drop'] {
+    --deck-enter-name: deck-enter-drop;
+  }
+  main[data-deck] > [data-enter='zoom'] {
+    --deck-enter-name: deck-enter-zoom;
   }
 
   /* Headline blocks come in harder than the body around them. */
@@ -347,6 +363,77 @@ html:has(main[data-deck]) .backdrop {
   }
 }
 
+@keyframes deck-enter-left {
+  0% {
+    opacity: 0;
+    transform: translate3d(-84px, 18px, 0) skewX(13deg) scale(0.96);
+  }
+  55% {
+    opacity: 1;
+  }
+  72% {
+    transform: translate3d(9px, -3px, 0) skewX(-2.5deg) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deck-enter-up {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 90px, 0) skewY(4deg) scale(0.94);
+  }
+  55% {
+    opacity: 1;
+  }
+  74% {
+    transform: translate3d(0, -12px, 0) skewY(-1deg) scale(1.012);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deck-enter-drop {
+  0% {
+    opacity: 0;
+    transform: translate3d(28px, -80px, 0) rotate(-4deg) scale(1.06);
+  }
+  55% {
+    opacity: 1;
+  }
+  76% {
+    transform: translate3d(-5px, 9px, 0) rotate(1deg) scale(0.994);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deck-enter-zoom {
+  0% {
+    opacity: 0;
+    transform: scale(1.32) skewX(-5deg);
+    filter: blur(12px);
+  }
+  55% {
+    opacity: 1;
+  }
+  78% {
+    transform: scale(0.985) skewX(1deg);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
 @keyframes deck-enter-title {
   0% {
     opacity: 0;
@@ -362,9 +449,10 @@ html:has(main[data-deck]) .backdrop {
   }
 }
 
-/* The slash that cuts across the screen on every change of slide. Two skewed
-   bars, the second a beat behind the first, built and fired by deck.ts. */
-.deck-slash {
+/* The cut that plays over every change of slide. One overlay, six panels, and
+   a `data-fx` variant chosen by deck.ts — it advances through the set on each
+   transition, so the same move never lands twice in a row. */
+.deck-fx {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -372,36 +460,235 @@ html:has(main[data-deck]) .backdrop {
   pointer-events: none;
 }
 
-.deck-slash span {
+.deck-fx span {
   position: absolute;
+  display: none;
+  background: var(--color-accent);
+}
+
+/* Every variant animates transform and nothing else, so the panels can be
+   promoted and run off the main thread. That matters here more than usual:
+   the character's WebGL loop shares that thread, and a full-screen overlay
+   stalling mid-sweep would leave the page covered. */
+.deck-fx.is-firing span {
+  will-change: transform;
+}
+
+/* Panel ordinal, shared by every variant for offsets and stagger delays. */
+.deck-fx span:nth-child(1) {
+  --n: 0;
+}
+.deck-fx span:nth-child(2) {
+  --n: 1;
+}
+.deck-fx span:nth-child(3) {
+  --n: 2;
+}
+.deck-fx span:nth-child(4) {
+  --n: 3;
+}
+.deck-fx span:nth-child(5) {
+  --n: 4;
+}
+.deck-fx span:nth-child(6) {
+  --n: 5;
+}
+
+/* 1 — SLASH: two skewed bars raking across, one chasing the other. */
+.deck-fx[data-fx='slash'] span:nth-child(-n + 2) {
+  display: block;
   top: -25%;
   bottom: -25%;
   left: 0;
   width: 46vw;
   transform: translateX(-170%) skewX(-14deg);
-  background: var(--color-accent);
 }
 
-.deck-slash span:nth-child(2) {
+.deck-fx[data-fx='slash'] span:nth-child(2) {
   width: 22vw;
   background: var(--color-text);
   opacity: 0.9;
 }
 
-.deck-slash.is-firing span {
-  animation: deck-slash-sweep 560ms cubic-bezier(0.72, 0, 0.16, 1) both;
+.deck-fx[data-fx='slash'].is-firing span {
+  animation: fx-slash 560ms cubic-bezier(0.72, 0, 0.16, 1) both;
+  animation-delay: calc(var(--n) * 90ms);
 }
 
-.deck-slash.is-firing span:nth-child(2) {
-  animation-delay: 90ms;
+/* 2 — BLINDS: six columns dropping through the frame, one after another. */
+.deck-fx[data-fx='blinds'] span {
+  display: block;
+  top: 0;
+  bottom: 0;
+  width: calc(100% / 6 + 1px);
+  left: calc(var(--n) * 100% / 6);
+  transform: translateY(-101%);
 }
 
-@keyframes deck-slash-sweep {
+.deck-fx[data-fx='blinds'] span:nth-child(even) {
+  background: var(--color-text);
+}
+
+.deck-fx[data-fx='blinds'].is-firing span {
+  animation: fx-blinds 620ms cubic-bezier(0.7, 0, 0.2, 1) both;
+  animation-delay: calc(var(--n) * 42ms);
+}
+
+/* 3 — WEDGE: two triangles crossing through each other diagonally. */
+.deck-fx[data-fx='wedge'] span:nth-child(-n + 2) {
+  display: block;
+  inset: 0;
+}
+
+.deck-fx[data-fx='wedge'] span:nth-child(1) {
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+.deck-fx[data-fx='wedge'] span:nth-child(2) {
+  background: var(--color-text);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+.deck-fx[data-fx='wedge'].is-firing span:nth-child(1) {
+  animation: fx-wedge-a 640ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+.deck-fx[data-fx='wedge'].is-firing span:nth-child(2) {
+  animation: fx-wedge-b 640ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+/* 4 — BARS: five rows sweeping past in alternating directions. */
+.deck-fx[data-fx='bars'] span:nth-child(-n + 5) {
+  display: block;
+  left: -12%;
+  right: -12%;
+  height: calc(100% / 5 + 1px);
+  top: calc(var(--n) * 100% / 5);
+}
+
+.deck-fx[data-fx='bars'] span:nth-child(even) {
+  background: var(--color-text);
+}
+
+.deck-fx[data-fx='bars'].is-firing span {
+  animation: fx-bar-right 520ms cubic-bezier(0.72, 0, 0.16, 1) both;
+  animation-delay: calc(var(--n) * 52ms);
+}
+
+.deck-fx[data-fx='bars'].is-firing span:nth-child(even) {
+  animation-name: fx-bar-left;
+}
+
+/* 5 — FLASH: a single blink of colour, cut by thin speed lines. */
+.deck-fx[data-fx='flash'] span:nth-child(1) {
+  display: block;
+  inset: 0;
+  opacity: 0;
+}
+
+.deck-fx[data-fx='flash'] span:nth-child(n + 2) {
+  display: block;
+  left: -12%;
+  right: -12%;
+  height: 3px;
+  top: calc(14% + var(--n) * 17%);
+  background: var(--color-text);
+  transform: skewY(-7deg) translateX(-130%);
+}
+
+.deck-fx[data-fx='flash'].is-firing span:nth-child(1) {
+  animation: fx-flash 420ms linear both;
+}
+
+.deck-fx[data-fx='flash'].is-firing span:nth-child(n + 2) {
+  animation: fx-speedline 480ms cubic-bezier(0.72, 0, 0.16, 1) both;
+  animation-delay: calc(var(--n) * 38ms);
+}
+
+@keyframes fx-slash {
   0% {
     transform: translateX(-170%) skewX(-14deg);
   }
   100% {
     transform: translateX(280%) skewX(-14deg);
+  }
+}
+
+/* Translation rather than a scale about a flipping origin: animating
+   `transform-origin` is not compositable and would drag this back onto the
+   main thread, which is the one thing this overlay must never depend on. */
+@keyframes fx-blinds {
+  0% {
+    transform: translateY(-101%);
+  }
+  46% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(101%);
+  }
+}
+
+@keyframes fx-wedge-a {
+  0% {
+    transform: translate(-110%, -110%);
+  }
+  46% {
+    transform: none;
+  }
+  100% {
+    transform: translate(110%, 110%);
+  }
+}
+
+@keyframes fx-wedge-b {
+  0% {
+    transform: translate(110%, 110%);
+  }
+  46% {
+    transform: none;
+  }
+  100% {
+    transform: translate(-110%, -110%);
+  }
+}
+
+@keyframes fx-bar-right {
+  0% {
+    transform: translateX(-118%);
+  }
+  100% {
+    transform: translateX(118%);
+  }
+}
+
+@keyframes fx-bar-left {
+  0% {
+    transform: translateX(118%);
+  }
+  100% {
+    transform: translateX(-118%);
+  }
+}
+
+@keyframes fx-flash {
+  0% {
+    opacity: 0;
+  }
+  14% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes fx-speedline {
+  0% {
+    transform: skewY(-7deg) translateX(-130%);
+  }
+  100% {
+    transform: skewY(-7deg) translateX(130%);
   }
 }
 
