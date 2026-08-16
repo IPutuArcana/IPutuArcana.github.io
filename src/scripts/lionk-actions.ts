@@ -89,16 +89,15 @@ const CODER: MicroAction = {
   turn: -0.5,
   pose: {
     ...STAND_A,
-    // Both forearms fold inward on *negative* Y — not mirrored signs. The
-    // scenes that already read well prove it: the listening pose folds the
-    // left arm across the body at -1.15, and the thinking pose brings the
-    // right hand to the chin at -0.45. Mirroring the sign swung the right
-    // arm outward instead, which is why the hands never met the keyboard.
-    leftUpperArm: [0.34, 0, -1.2],
-    leftLowerArm: [0, -1.32, -0.16],
+    // The forearm fold does mirror between the arms, measured rather than
+    // eyeballed: driving both on negative Y put the hands 55 cm apart with
+    // the right one swung a third of a metre *behind* the body, where a
+    // small render just showed an arm somewhere off to the side.
+    leftUpperArm: [-0.3, 0, -1.5],
+    leftLowerArm: [0, -1.42, -0.14],
     leftHand: [0.2, 0, 0.05],
-    rightUpperArm: [0.34, 0, 1.2],
-    rightLowerArm: [0, -1.32, 0.16],
+    rightUpperArm: [-0.3, 0, 1.5],
+    rightLowerArm: [0, 1.42, 0.14],
     rightHand: [0.2, 0, -0.05],
     chest: [0.08, 0, 0],
     neck: [0.13, 0, 0],
@@ -106,11 +105,11 @@ const CODER: MicroAction = {
   },
   poseB: {
     ...STAND_B,
-    leftUpperArm: [0.37, 0, -1.17],
-    leftLowerArm: [0, -1.36, -0.12],
+    leftUpperArm: [-0.42, 0, -1.49],
+    leftLowerArm: [0, -1.64, -0.11],
     leftHand: [0.23, 0, 0.07],
-    rightUpperArm: [0.37, 0, 1.17],
-    rightLowerArm: [0, -1.36, 0.12],
+    rightUpperArm: [-0.42, 0, 1.49],
+    rightLowerArm: [0, 1.64, 0.11],
     rightHand: [0.23, 0, -0.07],
     chest: [0.1, 0, 0],
     neck: [0.15, 0, 0],
@@ -127,8 +126,13 @@ const CODER: MicroAction = {
     // Turned to face the character. Built lid-away-from-origin, it was
     // hinged open on the far side — the screen pointing out of the page and
     // the character typing into the back of its own machine.
-    // Down at the waist, where forearms folded across the body actually sit.
-    offset: [0, -0.32, 0.2],
+    // Measured, not guessed: this is the midpoint between the two hands in
+    // the chest's own space while the pose is held, dropped a few
+    // centimetres so the keys sit under the fingers rather than through
+    // them. Every earlier attempt moved the machine toward where the hands
+    // looked like they were in a small render, and missed by a wide margin
+    // in a direction the render could not show.
+    offset: [0.034, 0.006, 0.238],
     rotation: [0, Math.PI, 0],
   },
   overlay(t, _phase, bone, out) {
@@ -349,14 +353,17 @@ function buildProp(THREE: THREENamespace, kind: PropKind): THREE_T.Object3D {
 
   if (kind === 'laptop') {
     const body = shell(0x2a2140);
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.012, 0.21), body);
-    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.012), body);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.012, 0.19), body);
+    // Shorter than a real lid's proportions on purpose: held at the height
+    // the hands actually reach, a full-height screen stands up into the
+    // character's own face and hides it.
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.15, 0.012), body);
     // Hinged at the back edge of the base, tipped open toward the character.
-    lid.position.set(0, 0.098, -0.104);
-    lid.rotation.x = -0.28;
+    lid.position.set(0, 0.073, -0.094);
+    lid.rotation.x = -0.34;
 
     const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.28, 0.18),
+      new THREE.PlaneGeometry(0.26, 0.13),
       shell(0x1a1430, 0x8b5cf6, 1.4),
     );
     screen.position.z = 0.007;

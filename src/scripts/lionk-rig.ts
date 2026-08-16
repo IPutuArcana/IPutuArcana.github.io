@@ -68,8 +68,20 @@ const SEGMENT_SHARE: Record<string, number> = {
   Distal: 0.85,
 };
 
-/** A hand at rest is not a flat plank — fingers fall into a slight curve. */
-export const HAND_RELAXED: HandPose = { all: 0.22, Thumb: 0.16 };
+/**
+ * A hand at rest is not a flat plank, and it is not a uniform curl either.
+ * Left alone, a hand falls into a cascade: the index barely bends, and each
+ * finger after it closes a little further, so the fingertips describe a curve
+ * rather than a line. Setting them all to one value is most of what makes a
+ * rigged hand read as a glove.
+ */
+export const HAND_RELAXED: HandPose = {
+  Thumb: 0.13,
+  Index: 0.15,
+  Middle: 0.21,
+  Ring: 0.28,
+  Little: 0.35,
+};
 
 export function curlOf(pose: HandPose | undefined, finger: FingerName): number {
   if (!pose) return HAND_RELAXED[finger] ?? HAND_RELAXED.all ?? 0;
@@ -147,11 +159,17 @@ export const STAND_A: Pose = {
   // invisible from the front — the leg just foreshortens and reads as
   // straight — so the drift has to carry sideways too for the looseness to
   // survive the head-on framing the hero slide uses.
-  leftUpperLeg: [-0.22, 0.08, -0.27],
-  leftLowerLeg: [0.46, 0, 0.05],
+  // Splay opens outward on +Z for the left leg and -Z for the right, which
+  // is the opposite of what it first looked like: a leg points down at
+  // (0,-1,0), and rotating it about Z by t swings the foot to (sin t, -cos t),
+  // so the left leg — the one on the +X side — needs a positive angle to move
+  // away from its neighbour. Signed the other way the legs scissor across
+  // each other instead of hanging apart.
+  leftUpperLeg: [-0.22, 0.08, 0.19],
+  leftLowerLeg: [0.46, 0, -0.04],
   leftFoot: [-0.4, 0.1, 0],
-  rightUpperLeg: [-0.44, -0.1, 0.34],
-  rightLowerLeg: [0.78, 0, -0.06],
+  rightUpperLeg: [-0.44, -0.1, -0.25],
+  rightLowerLeg: [0.78, 0, 0.05],
   rightFoot: [-0.5, -0.12, 0],
 };
 
@@ -161,11 +179,11 @@ export const STAND_B: Pose = {
   spine: [0, -0.04, 0.022],
   chest: [-0.02, -0.03, 0.018],
   neck: [0.02, 0.03, -0.02],
-  leftUpperLeg: [-0.46, 0.11, -0.35],
-  leftLowerLeg: [0.8, 0, 0.06],
+  leftUpperLeg: [-0.46, 0.11, 0.26],
+  leftLowerLeg: [0.8, 0, -0.05],
   leftFoot: [-0.52, 0.13, 0],
-  rightUpperLeg: [-0.2, -0.07, 0.25],
-  rightLowerLeg: [0.44, 0, -0.05],
+  rightUpperLeg: [-0.2, -0.07, -0.18],
+  rightLowerLeg: [0.44, 0, 0.04],
   rightFoot: [-0.38, -0.09, 0],
 };
 

@@ -417,6 +417,8 @@ async function start(stage: HTMLElement): Promise<void> {
     segment: string;
     /** Current curl, damped toward the wanted one so grips are not instant. */
     curl: number;
+    /** Phase offset, so no two fingers drift on the same beat. */
+    phase: number;
   }
   const fingerJoints: FingerJoint[] = [];
   (['left', 'right'] as const).forEach((side) => {
@@ -425,7 +427,10 @@ async function start(stage: HTMLElement): Promise<void> {
         const node = vrm.humanoid?.getNormalizedBoneNode(
           `${side}${finger}${segment}` as VRMHumanBoneName,
         );
-        if (node) fingerJoints.push({ node, side, finger, segment, curl: 0 });
+        if (node) {
+          const phase = FINGERS.indexOf(finger) * 1.19 + (side === 'left' ? 0 : 2.7);
+          fingerJoints.push({ node, side, finger, segment, curl: 0, phase });
+        }
       });
     });
   });
@@ -877,7 +882,17 @@ async function start(stage: HTMLElement): Promise<void> {
           ? resting + (curlOf(asked, joint.finger) - resting) * actionWeight
           : resting;
         joint.curl = damp(joint.curl, wanted, 12, dt);
-        fingerRotation(joint.side, joint.finger, joint.segment, joint.curl, fingerBuffer);
+        // A live hand is never quite still, and it never moves as one piece.
+        // Each finger drifts on its own slow beat — small enough not to read
+        // as an animation, large enough that the hand stops being a prop.
+        const drift = Math.sin(elapsed * 0.9 + joint.phase) * 0.035;
+        fingerRotation(
+          joint.side,
+          joint.finger,
+          joint.segment,
+          joint.curl + drift,
+          fingerBuffer,
+        );
         joint.node.rotation.set(fingerBuffer[0], fingerBuffer[1], fingerBuffer[2]);
       });
     }
