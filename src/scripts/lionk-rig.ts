@@ -79,6 +79,15 @@ export function curlOf(pose: HandPose | undefined, finger: FingerName): number {
 /**
  * Fingers close around Z, mirrored between the hands. The thumb folds across
  * the palm rather than into it, so it borrows some of the curl on Y.
+ *
+ * The sign is worth deriving rather than guessing, because getting it
+ * backwards bends the fingers over the back of the hand and still looks
+ * plausible in a small render. Rest pose is a T-pose with the palms down, so
+ * the left hand's fingers point along +X and the right hand's along -X, and
+ * closing either one means carrying the fingertip toward -Y. Rotating about Z
+ * by t sends +X to (cos t, sin t): reaching -Y needs sin t < 0, so the left
+ * hand curls negative. The right starts at -X and goes to (-cos t, -sin t),
+ * which needs sin t > 0 — the opposite sign.
  */
 export function fingerRotation(
   side: HandSide,
@@ -87,7 +96,7 @@ export function fingerRotation(
   curl: number,
   out: TripleOut,
 ): void {
-  const sign = side === 'left' ? 1 : -1;
+  const sign = side === 'left' ? -1 : 1;
   const amount = curl * (SEGMENT_SHARE[segment] ?? 1);
   out[0] = 0;
   out[1] = finger === 'Thumb' ? sign * amount * 0.55 : 0;
