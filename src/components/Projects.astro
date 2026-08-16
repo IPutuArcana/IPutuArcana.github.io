@@ -11,6 +11,16 @@ const { lang } = Astro.props;
 const t = content[lang];
 const en = content.en;
 const id = content.id;
+
+// Pair every entry with its English twin *before* splitting. Filtering the two
+// language arrays separately would renumber them independently, so a card could
+// end up showing another project's text once the language is toggled.
+const paired = t.projects.items.map((project, i) => ({
+  project,
+  enProject: en.projects.items[i],
+}));
+const selected = paired.filter(({ project }) => !project.archived);
+const archived = paired.filter(({ project }) => project.archived);
 ---
 
 <section class="section wrap" id="projects">
@@ -22,16 +32,49 @@ const id = content.id;
   </div>
 
   <div class="projects-grid">
-    {t.projects.items.map((project, i) => (
+    {selected.map(({ project, enProject }, i) => (
       <ProjectCard
         project={project}
-        enProject={en.projects.items[i]}
+        enProject={enProject}
         linkLabel={t.projects.linkLabel}
         enLinkLabel={en.projects.linkLabel}
+        privateLabel={t.projects.privateLabel}
+        enPrivateLabel={en.projects.privateLabel}
         featured={i === 0}
       />
     ))}
   </div>
+
+  {archived.length > 0 && (
+    <details class="archive">
+      <summary class="archive-summary panel reveal">
+        <span data-i18n-id={id.projects.archiveLabel} data-i18n-en={en.projects.archiveLabel}>
+          {t.projects.archiveLabel}
+        </span>
+        <span class="archive-count">{archived.length}</span>
+        <svg class="archive-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6"></path>
+        </svg>
+      </summary>
+
+      <p class="note archive-note" data-i18n-id={id.projects.archiveNote} data-i18n-en={en.projects.archiveNote}>
+        {t.projects.archiveNote}
+      </p>
+
+      <div class="projects-grid archive-grid">
+        {archived.map(({ project, enProject }) => (
+          <ProjectCard
+            project={project}
+            enProject={enProject}
+            linkLabel={t.projects.linkLabel}
+            enLinkLabel={en.projects.linkLabel}
+            privateLabel={t.projects.privateLabel}
+            enPrivateLabel={en.projects.privateLabel}
+          />
+        ))}
+      </div>
+    </details>
+  )}
 </section>
 
 <style>
@@ -64,6 +107,63 @@ const id = content.id;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--space-md);
     margin-top: var(--space-xl);
+  }
+
+  /* Coursework and practice repos stay on the page in full, but folded away so
+     they don't sit at the same visual weight as the selected work above. */
+  .archive {
+    margin-top: var(--space-xl);
+  }
+
+  .archive-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    transition: border-color var(--duration-fast) var(--ease-out-expo);
+  }
+
+  /* Drop the native disclosure triangle in favour of the chevron below. */
+  .archive-summary {
+    list-style: none;
+  }
+
+  .archive-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .archive-summary:hover {
+    border-color: var(--color-accent);
+  }
+
+  .archive-count {
+    font-family: var(--font-display);
+    color: var(--color-text-muted);
+    text-transform: none;
+  }
+
+  .archive-chevron {
+    width: 0.9rem;
+    height: 0.9rem;
+    margin-left: auto;
+    transition: transform var(--duration-normal) var(--ease-out-expo);
+  }
+
+  .archive[open] .archive-chevron {
+    transform: rotate(180deg);
+  }
+
+  .archive-note {
+    margin-top: var(--space-md);
+  }
+
+  .archive-grid {
+    margin-top: var(--space-md);
   }
 
   @media (max-width: 800px) {

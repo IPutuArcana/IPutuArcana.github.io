@@ -6,10 +6,20 @@ interface Props {
   enProject: ProjectEntry;
   linkLabel: string;
   enLinkLabel: string;
+  privateLabel: string;
+  enPrivateLabel: string;
   featured?: boolean;
 }
 
-const { project, enProject, linkLabel, enLinkLabel, featured = false } = Astro.props;
+const {
+  project,
+  enProject,
+  linkLabel,
+  enLinkLabel,
+  privateLabel,
+  enPrivateLabel,
+  featured = false,
+} = Astro.props;
 ---
 
 <article class:list={['project-card panel reveal', { featured }]} data-searchable>
@@ -20,12 +30,22 @@ const { project, enProject, linkLabel, enLinkLabel, featured = false } = Astro.p
   </div>
   <h3 data-i18n-id={project.title} data-i18n-en={enProject.title}>{project.title}</h3>
   <p data-i18n-id={project.description} data-i18n-en={enProject.description}>{project.description}</p>
-  <a href={project.href} target="_blank" rel="noopener noreferrer" class="project-link">
-    <span data-i18n-id={linkLabel} data-i18n-en={enLinkLabel}>{linkLabel}</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M7 17 17 7M7 7h10v10"></path>
-    </svg>
-  </a>
+  {project.href ? (
+    <a href={project.href} target="_blank" rel="noopener noreferrer" class="project-link">
+      <span data-i18n-id={linkLabel} data-i18n-en={enLinkLabel}>{linkLabel}</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 17 17 7M7 7h10v10"></path>
+      </svg>
+    </a>
+  ) : (
+    <p class="project-private">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="4" y="10.5" width="16" height="10" rx="2"></rect>
+        <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+      </svg>
+      <span data-i18n-id={privateLabel} data-i18n-en={enPrivateLabel}>{privateLabel}</span>
+    </p>
+  )}
 </article>
 
 <style>
@@ -86,6 +106,23 @@ const { project, enProject, linkLabel, enLinkLabel, featured = false } = Astro.p
     width: 0.9rem;
     height: 0.9rem;
     transition: transform var(--duration-fast) var(--ease-out-expo);
+  }
+
+  /* Stands in for the link on cards whose repository is still private, so the
+     card ends on an honest statement rather than a URL that would 404. */
+  .project-private {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-top: var(--space-sm);
+  }
+
+  .project-private svg {
+    width: 0.9rem;
+    height: 0.9rem;
   }
 
   .project-link:hover svg {
