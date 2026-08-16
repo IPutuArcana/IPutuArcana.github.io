@@ -49,6 +49,11 @@ const id = content.id;
     display: flex;
     align-items: center;
     padding-block: var(--space-xl) var(--space-section);
+    /* Measured so the panel inside can lay itself out against the width it
+       actually got rather than against the viewport. The deck hands a
+       vw-scaled column to the 3D character, so those two numbers diverge by
+       hundreds of pixels — see the column rule at the bottom of this file. */
+    container: hero / inline-size;
   }
 
   .hero-cloud {
@@ -88,6 +93,10 @@ const id = content.id;
     font-size: clamp(2.75rem, 1.4rem + 6.5vw, 6rem);
     line-height: 0.95;
     margin-block: var(--space-sm) var(--space-md);
+    /* A single name longer than its column should break rather than spill
+       across whatever sits beside it. The column rule below is what keeps
+       this from ever being reached at the sizes we lay out for. */
+    overflow-wrap: break-word;
   }
 
   .tagline {
@@ -154,15 +163,27 @@ const id = content.id;
   @media (min-width: 1024px) {
     .hero-panel {
       max-width: none;
-      display: grid;
-      grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 1fr);
-      column-gap: var(--space-xl);
-      align-items: start;
     }
 
-    .hero-panel :global(.stat-strip) {
-      flex-direction: column;
-      margin: 0;
+    /* Two columns only once the panel is genuinely wide enough to hold both.
+       A wide viewport does not promise a wide panel: from 1100px up the deck
+       reserves 26vw on the right for the character and 12rem on the left for
+       the rail, so at ~1100-1350px the panel is only ~560-770px. Splitting
+       that against the stat rail's 16rem floor left the title roughly 214px
+       to hold a name that sets ~300px, and it ran out under the stat cards.
+       Below the threshold the panel stays single-column, which has the room. */
+    @container hero (min-width: 49rem) {
+      .hero-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 1fr);
+        column-gap: var(--space-xl);
+        align-items: start;
+      }
+
+      .hero-panel :global(.stat-strip) {
+        flex-direction: column;
+        margin: 0;
+      }
     }
   }
 
