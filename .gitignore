@@ -23,6 +23,11 @@ pnpm-debug.log*
 # jetbrains setting folder
 .idea/
 
+# Claude Code's local tool-permission cache. Machine-specific — it records
+# absolute paths from whichever checkout approved them, so it is noise in a
+# shared repository and doubly so in a public one.
+.claude/
+
 # Character motion clips. Kept out of the repository on purpose: the freely
 # available .vrma packs forbid redistributing the data in a form that can be
 # extracted or rigged, and both a public repo and a static host do exactly
