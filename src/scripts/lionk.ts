@@ -113,6 +113,11 @@ const STAND_B: Pose = {
 /** How fast a scene drifts between its two pose keys, in radians per second. */
 const SHIFT_SPEED = 0.78;
 
+/** How long the click reaction's whip-spin takes to unwind, in seconds. */
+const CLICK_SPIN_DURATION = 0.5;
+/** Total time the click reaction (spin + landing hold) stays active. */
+const CLICK_REACTION_HOLD = 1.7;
+
 /**
  * Overlapping action. A body does not move as one piece: the hips lead, the
  * chest follows, the head arrives last, and a hand trails further still. Each
@@ -341,27 +346,35 @@ const SCENES: Scene[] = [
 ];
 
 /**
- * Played for a couple of seconds when the character is clicked. It carries no
- * camera of its own — a click should not yank the framing away from the slide.
+ * Landed in after the click reaction's whip-spin (the spin itself is applied
+ * in the tick loop, on top of `turn`, not here) — fist pumped overhead, other
+ * hand on the hip. Carries no camera of its own — a click should not yank the
+ * framing away from the slide.
  */
 const GREET: Omit<Scene, 'cam'> = {
   pose: {
     ...STAND_A,
-    leftUpperArm: [0, 0, -0.45],
-    leftLowerArm: [0, 0, 1.3],
-    rightUpperArm: [0, 0, 0.45],
-    rightLowerArm: [0, 0, -1.3],
-    head: [-0.1, 0, 0],
-    chest: [-0.08, 0, 0],
+    rightUpperArm: [0, 0, -1.12],
+    rightLowerArm: [0, 0, -0.16],
+    rightHand: [0.1, 0, -0.1],
+    leftUpperArm: [0.1, 0, -1.05],
+    leftLowerArm: [0, -0.95, -0.28],
+    leftHand: [0, 0, 0.15],
+    head: [-0.14, 0.08, 0.02],
+    chest: [-0.1, 0.03, 0],
+    spine: [0, -0.04, 0.015],
   },
   poseB: {
     ...STAND_B,
-    leftUpperArm: [0, 0, -0.32],
-    leftLowerArm: [0, 0, 1.42],
-    rightUpperArm: [0, 0, 0.32],
-    rightLowerArm: [0, 0, -1.42],
-    head: [-0.14, 0, 0],
-    chest: [-0.11, 0, 0],
+    rightUpperArm: [0, 0, -1.2],
+    rightLowerArm: [0, 0, -0.24],
+    rightHand: [0.12, 0, -0.14],
+    leftUpperArm: [0.13, 0, -1.12],
+    leftLowerArm: [0, -1.05, -0.22],
+    leftHand: [0, 0, 0.2],
+    head: [-0.18, 0.04, -0.02],
+    chest: [-0.13, 0, 0],
+    spine: [0, -0.02, -0.015],
   },
   expression: 'happy',
   offsetX: 0,
@@ -511,6 +524,12 @@ async function start(stage: HTMLElement): Promise<void> {
   let reactionUntil = 0;
   let hopVelocity = 0;
   let hopHeight = 0;
+  let spinStart = 0;
+  let spinUntil = 0;
+  // The body's facing, damped on its own — kept separate from
+  // root.rotation.y so the spin offset added at render time never gets fed
+  // back in as if it were the character's actual facing.
+  let bodyYaw = 0;
   /** While `elapsed` is below this, poses snap rather than blend. */
   let snapUntil = 0;
   let popAmount = 0;
@@ -668,8 +687,10 @@ async function start(stage: HTMLElement): Promise<void> {
         out[2] = Math.sin(t * 1.9) * 0.05;
         break;
       case 'rightHand': {
-        // The waving hand: during the hero scene and the greeting reaction.
-        const waving = sceneIndex === 0 || t < reactionUntil;
+        // The waving hand: hero scene only, and not during the click
+        // reaction — that now drives its own gesture (a fist pump), which a
+        // wave shake layered on top would just blur.
+        const waving = sceneIndex === 0 && t >= reactionUntil;
         out[2] = (waving ? Math.sin(t * 7.5) * 0.42 : 0) + Math.sin(t * 1.9) * 0.05;
         break;
       }
@@ -716,8 +737,11 @@ async function start(stage: HTMLElement): Promise<void> {
     raycaster.setFromCamera(ndc, camera);
     if (raycaster.intersectObject(root, true).length === 0) return;
 
-    reactionUntil = elapsed + 2.4;
-    hopVelocity = 1.9;
+    spinStart = elapsed;
+    spinUntil = elapsed + CLICK_SPIN_DURATION;
+    reactionUntil = elapsed + CLICK_REACTION_HOLD;
+    hopVelocity = 2.2;
+    popAmount = 0.05;
     if (greetAction) playMotion(sceneIndex, greetAction);
   }
 
@@ -763,7 +787,18 @@ async function start(stage: HTMLElement): Promise<void> {
 
     // Stage placement.
     root.position.x = damp(root.position.x, active.offsetX, placeRate, dt);
-    root.rotation.y = damp(root.rotation.y, active.turn + aimX * 0.1, placeRate, dt);
+
+    // The click reaction's whip-spin: an extra turn that eases from a full
+    // 2π down to 0, ease-out, riding on top of wherever the body is already
+    // facing. At 2π the offset is a no-op, so it starts invisibly and spins
+    // the body through exactly one turn as it unwinds.
+    const spinT =
+      spinUntil > 0 ? Math.min(1, Math.max(0, (elapsed - spinStart) / CLICK_SPIN_DURATION)) : 1;
+    const spinEase = 1 - (1 - spinT) ** 3;
+    const spinOffset = (1 - spinEase) * Math.PI * 2;
+
+    bodyYaw = damp(bodyYaw, active.turn + aimX * 0.1, placeRate, dt);
+    root.rotation.y = bodyYaw + spinOffset;
 
     // The punch that lands with the pose, decaying back to normal size.
     popAmount = damp(popAmount, 0, 7, dt);
