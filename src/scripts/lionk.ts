@@ -517,6 +517,10 @@ async function start(stage: HTMLElement): Promise<void> {
   let burstTimer = 0;
 
   let mixer: THREE_T.AnimationMixer | null = null;
+  // Set by destroy() so an in-flight loadMotions() (mid-fetch, mid-import, or
+  // mid-clip-load when destroy() lands) can bail instead of building a mixer
+  // on top of a vrm.scene that deepDispose already tore down.
+  let destroyed = false;
   let sceneActions: (THREE_T.AnimationAction | null)[] = [];
   let greetAction: THREE_T.AnimationAction | null = null;
   let currentAction: THREE_T.AnimationAction | null = null;
@@ -537,6 +541,10 @@ async function start(stage: HTMLElement): Promise<void> {
       // No manifest is the normal case; the site ships without motion files.
       return;
     }
+    // The character can be torn down (toggled off, or navigated away from)
+    // while that fetch was in flight — bail before touching vrm.scene, which
+    // destroy() may have already disposed.
+    if (destroyed) return;
 
     // An empty manifest is how the site ships. Bail before pulling in the
     // animation runtime, so an unused chunk is never downloaded.
@@ -546,6 +554,7 @@ async function start(stage: HTMLElement): Promise<void> {
     const { VRMAnimationLoaderPlugin, createVRMAnimationClip } = await import(
       '@pixiv/three-vrm-animation'
     );
+    if (destroyed) return;
 
     const motionLoader = new GLTFLoader();
     motionLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
@@ -555,6 +564,9 @@ async function start(stage: HTMLElement): Promise<void> {
       if (!file) return null;
       try {
         const gltf = await motionLoader.loadAsync(`/models/motions/${file}`);
+        // Same story: destroy() may have landed during this network wait.
+        // mixer is null by then, so clipAction would throw on a null deref.
+        if (destroyed) return null;
         const animation = gltf.userData.vrmAnimations?.[0];
         if (!animation) return null;
         return mixer!.clipAction(createVRMAnimationClip(animation, vrm!));
@@ -565,8 +577,10 @@ async function start(stage: HTMLElement): Promise<void> {
     };
 
     sceneActions = await Promise.all((manifest.scenes ?? []).map(toAction));
+    if (destroyed) return;
 
     greetAction = await toAction(manifest.greet);
+    if (destroyed) return;
     if (greetAction) {
       greetAction.setLoop(THREE.LoopOnce, 1);
       greetAction.clampWhenFinished = true;
@@ -890,6 +904,7 @@ async function start(stage: HTMLElement): Promise<void> {
 
   runtime = {
     destroy() {
+      destroyed = true;
       renderer.setAnimationLoop(null);
       window.clearTimeout(burstTimer);
       mixer?.stopAllAction();
