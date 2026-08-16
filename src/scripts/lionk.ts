@@ -17,6 +17,29 @@
 import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm';
 import type * as THREE_T from 'three';
 
+import {
+  type BoneKey,
+  type FingerName,
+  type HandSide,
+  type Pose,
+  type Triple,
+  type TripleOut,
+  BASE_OMEGA,
+  BONES,
+  BONE_LAG,
+  FINGERS,
+  FINGER_SEGMENTS,
+  MAX_STEP,
+  SHIFT_SPEED,
+  STAND_A,
+  STAND_B,
+  ZERO,
+  curlOf,
+  damp,
+  fingerRotation,
+  weightShift,
+} from './lionk-rig';
+
 const MODEL_URL = '/models/lionk.vrm';
 /**
  * Optional motion capture. If this manifest is present the character is driven
@@ -33,137 +56,10 @@ const MOTION_MANIFEST = '/models/motions/motions.json';
 const MIN_VIEWPORT = 1100;
 const PREF_KEY = 'lionk-visible';
 
-/** The subset of the humanoid rig we animate. */
-const BONES = [
-  'hips',
-  'spine',
-  'chest',
-  'upperChest',
-  'neck',
-  'head',
-  'leftShoulder',
-  'leftUpperArm',
-  'leftLowerArm',
-  'leftHand',
-  'rightShoulder',
-  'rightUpperArm',
-  'rightLowerArm',
-  'rightHand',
-  'leftUpperLeg',
-  'leftLowerLeg',
-  'leftFoot',
-  'rightUpperLeg',
-  'rightLowerLeg',
-  'rightFoot',
-] as const;
-
-type BoneKey = (typeof BONES)[number];
-type Triple = readonly [number, number, number];
-type Pose = Partial<Record<BoneKey, Triple>>;
-
-/**
- * Arms rest at the sides. Every other pose is written as a delta from the VRM
- * rest pose (a T-pose), so this is the baseline the character returns to.
- */
-const ARMS_DOWN: Pose = {
-  leftUpperArm: [0.05, 0, -1.22],
-  leftLowerArm: [0, -0.18, -0.14],
-  rightUpperArm: [0.05, 0, 1.22],
-  rightLowerArm: [0, 0.18, 0.14],
-};
-
-/**
- * Contrapposto — weight carried on one leg, the other loose and slightly
- * forward, pelvis tilted and the shoulders counter-tilted against it. Standing
- * square on both legs is what makes a rigged character read as a mannequin,
- * and no amount of arm posing above it fixes that.
- *
- * Every scene is built on one of these two and slowly drifts between them, so
- * the character keeps shifting its weight instead of holding a frozen shape.
- * Feet counter-rotate against the sum of the leg joints to stay flat.
- */
-const STAND_A: Pose = {
-  ...ARMS_DOWN,
-  hips: [0, 0, 0.038],
-  spine: [0, 0.05, -0.022],
-  chest: [-0.02, 0.04, -0.018],
-  neck: [0.02, -0.03, 0.02],
-  leftUpperLeg: [0.02, 0, -0.03],
-  leftLowerLeg: [0.05, 0, 0],
-  leftFoot: [-0.07, 0, 0],
-  rightUpperLeg: [-0.14, 0, 0.09],
-  rightLowerLeg: [0.28, 0, 0],
-  rightFoot: [-0.14, 0, 0],
-};
-
-const STAND_B: Pose = {
-  ...ARMS_DOWN,
-  hips: [0, 0, -0.038],
-  spine: [0, -0.04, 0.022],
-  chest: [-0.02, -0.03, 0.018],
-  neck: [0.02, 0.03, -0.02],
-  rightUpperLeg: [0.02, 0, 0.03],
-  rightLowerLeg: [0.05, 0, 0],
-  rightFoot: [-0.07, 0, 0],
-  leftUpperLeg: [-0.14, 0, -0.09],
-  leftLowerLeg: [0.28, 0, 0],
-  leftFoot: [-0.14, 0, 0],
-};
-
-/** How fast a scene drifts between its two pose keys, in radians per second. */
-const SHIFT_SPEED = 0.78;
-
 /** How long the click reaction's whip-spin takes to unwind, in seconds. */
 const CLICK_SPIN_DURATION = 0.5;
 /** Total time the click reaction (spin + landing hold) stays active. */
 const CLICK_REACTION_HOLD = 1.7;
-
-/**
- * Overlapping action. A body does not move as one piece: the hips lead, the
- * chest follows, the head arrives last, and a hand trails further still. Each
- * bone gets a rate multiplier — heavier and closer to the root means faster to
- * arrive, further out along a limb means more lag — and that spread alone is
- * most of the difference between a rig that moves and a rig that snaps.
- */
-const BONE_LAG: Record<BoneKey, number> = {
-  hips: 1.35,
-  spine: 1.15,
-  chest: 1.0,
-  upperChest: 0.9,
-  neck: 0.76,
-  head: 0.62,
-  leftShoulder: 0.95,
-  leftUpperArm: 0.8,
-  leftLowerArm: 0.58,
-  leftHand: 0.42,
-  rightShoulder: 0.95,
-  rightUpperArm: 0.8,
-  rightLowerArm: 0.58,
-  rightHand: 0.42,
-  leftUpperLeg: 1.1,
-  leftLowerLeg: 0.85,
-  leftFoot: 0.66,
-  rightUpperLeg: 1.1,
-  rightLowerLeg: 0.85,
-  rightFoot: 0.66,
-};
-
-/** Base angular frequency of the joint springs, in radians per second. */
-const BASE_OMEGA = 8.5;
-/** Integration step for the springs; anything longer can go unstable. */
-const MAX_STEP = 1 / 90;
-
-/**
- * The weight-shift cycle. A plain cosine is the giveaway of a procedural rig —
- * it is always moving, at an even speed, forever. People hold a stance, then
- * change it fairly quickly, then hold again. Smoothstepping a triangle wave
- * gives exactly that: long dwells at both ends, a brisk move between them.
- */
-function weightShift(t: number): number {
-  const p = (((t / (Math.PI * 2)) % 1) + 1) % 1;
-  const tri = p < 0.5 ? p * 2 : 2 - p * 2;
-  return tri * tri * (3 - 2 * tri);
-}
 
 /**
  * Where the camera sits for a scene. A short lens far back reads as a calm
@@ -381,13 +277,6 @@ const GREET: Omit<Scene, 'cam'> = {
   turn: 0,
 };
 
-const ZERO: Triple = [0, 0, 0];
-
-/** Frame-rate independent exponential smoothing. */
-function damp(current: number, target: number, lambda: number, dt: number): number {
-  return current + (target - current) * (1 - Math.exp(-lambda * dt));
-}
-
 interface Runtime {
   destroy: () => void;
 }
@@ -425,10 +314,14 @@ async function start(stage: HTMLElement): Promise<void> {
 
   setStatus('0%');
 
-  const [THREE, { GLTFLoader }, { VRMLoaderPlugin, VRMUtils }] = await Promise.all([
+  const [THREE, { GLTFLoader }, { VRMLoaderPlugin, VRMUtils }, actions] = await Promise.all([
     import('three'),
     import('three/examples/jsm/loaders/GLTFLoader.js'),
     import('@pixiv/three-vrm'),
+    // Pure pose data and primitives — next to nothing beside the 15 MB model,
+    // and it has to be here before the first frame or the director's own
+    // opening timer would start against a runtime that cannot answer it.
+    import('./lionk-actions'),
   ]);
 
   const renderer = new THREE.WebGLRenderer({
@@ -514,9 +407,49 @@ async function start(stage: HTMLElement): Promise<void> {
   const poseState = new Map<BoneKey, Float32Array>();
   BONES.forEach((bone) => poseState.set(bone, new Float32Array(6)));
 
+  // Finger joints, resolved once. They are driven straight rather than
+  // through the spring solver: a finger closing is fast and short, and the
+  // lag that reads as weight in an arm just reads as lag in a hand.
+  interface FingerJoint {
+    node: THREE_T.Object3D;
+    side: HandSide;
+    finger: FingerName;
+    segment: string;
+    /** Current curl, damped toward the wanted one so grips are not instant. */
+    curl: number;
+  }
+  const fingerJoints: FingerJoint[] = [];
+  (['left', 'right'] as const).forEach((side) => {
+    FINGERS.forEach((finger) => {
+      FINGER_SEGMENTS[finger].forEach((segment) => {
+        const node = vrm.humanoid?.getNormalizedBoneNode(
+          `${side}${finger}${segment}` as VRMHumanBoneName,
+        );
+        if (node) fingerJoints.push({ node, side, finger, segment, curl: 0 });
+      });
+    });
+  });
+
+  // The idle repertoire. Props are parented into the *raw* skinned hierarchy
+  // rather than the normalized rig, which is only a proxy that gets copied
+  // onto the raw bones — a laptop hung off a normalized node would sit in the
+  // wrong place and not move with the mesh.
+  const director = actions.createActionDirector({
+    THREE,
+    getBoneNode: (bone) => vrm.humanoid?.getRawBoneNode(bone as VRMHumanBoneName),
+  });
+  const scrollLean = actions.createScrollLean();
+
   if (import.meta.env.DEV) {
     // Poses are authored by eye; this is the handle used to check them.
-    (window as unknown as Record<string, unknown>).__lionk = { vrm, root, boneNodes };
+    // `play('swordsman')` beats waiting out a random gap to see one.
+    (window as unknown as Record<string, unknown>).__lionk = {
+      vrm,
+      root,
+      boneNodes,
+      play: (id?: string) => director.trigger(id),
+      lean: () => scrollLean.value,
+    };
   }
 
   let sceneIndex = 0;
@@ -686,6 +619,29 @@ async function start(stage: HTMLElement): Promise<void> {
       case 'leftHand':
         out[2] = Math.sin(t * 1.9) * 0.05;
         break;
+      // Nothing is holding the legs up, so they trail the float rather than
+      // hanging from it — slowly, out of phase with each other and with the
+      // breath, so the pair never looks like one hinged object.
+      case 'leftUpperLeg':
+        out[0] = Math.sin(t * 0.61) * 0.055;
+        out[2] = Math.sin(t * 0.44 + 0.9) * 0.04;
+        break;
+      case 'rightUpperLeg':
+        out[0] = Math.sin(t * 0.53 + 2.2) * 0.055;
+        out[2] = Math.sin(t * 0.47 + 3.1) * 0.04;
+        break;
+      case 'leftLowerLeg':
+        out[0] = Math.sin(t * 0.61 - 0.5) * 0.07;
+        break;
+      case 'rightLowerLeg':
+        out[0] = Math.sin(t * 0.53 + 1.6) * 0.07;
+        break;
+      case 'leftFoot':
+        out[0] = Math.sin(t * 0.7 + 1.1) * 0.09;
+        break;
+      case 'rightFoot':
+        out[0] = Math.sin(t * 0.66 + 2.7) * 0.09;
+        break;
       case 'rightHand': {
         // The waving hand: hero scene only, and not during the click
         // reaction — that now drives its own gesture (a fist pump), which a
@@ -699,7 +655,9 @@ async function start(stage: HTMLElement): Promise<void> {
     }
   }
 
-  const idleBuffer: [number, number, number] = [0, 0, 0];
+  const idleBuffer: TripleOut = [0, 0, 0];
+  const overlayBuffer: TripleOut = [0, 0, 0];
+  const fingerBuffer: TripleOut = [0, 0, 0];
 
   function resize(): void {
     const rect = stage.getBoundingClientRect();
@@ -750,6 +708,9 @@ async function start(stage: HTMLElement): Promise<void> {
     if (typeof detail?.index !== 'number') return;
     setScene(detail.index);
     playMotion(detail.index);
+    // The slide is the louder statement; an action mid-play bows out of it
+    // rather than being cut, and the gap is re-rolled from here.
+    director.interrupt();
 
     // A game menu snaps its character into the new pose and punches the frame;
     // it does not glide. The window below is what the tick loop reads to swap
@@ -785,6 +746,20 @@ async function start(stage: HTMLElement): Promise<void> {
     const snapping = elapsed < snapUntil;
     const placeRate = snapping ? 11 : 2.6;
 
+    // A clip, when there is one, owns the whole humanoid — so it is resolved
+    // before anything below asks whether it may move the body.
+    mixer?.update(dt);
+    const motionDriven = currentAction !== null;
+
+    scrollLean.update(dt);
+
+    // The idle repertoire only gets the body when nothing louder wants it: no
+    // motion clip, no click reaction, and not mid-snap into a new slide.
+    const idleFree = !motionDriven && elapsed >= reactionUntil && !snapping;
+    const beat = director.update(dt, idleFree);
+    const actionPose = beat.action;
+    const actionWeight = beat.weight;
+
     // Stage placement.
     root.position.x = damp(root.position.x, active.offsetX, placeRate, dt);
 
@@ -797,7 +772,13 @@ async function start(stage: HTMLElement): Promise<void> {
     const spinEase = 1 - (1 - spinT) ** 3;
     const spinOffset = (1 - spinEase) * Math.PI * 2;
 
-    bodyYaw = damp(bodyYaw, active.turn + aimX * 0.1, placeRate, dt);
+    // An action with a turn of its own takes the body around with it, eased
+    // on the same weight as its pose, and hands the angle back on the way out.
+    let wantedTurn = active.turn;
+    if (beat.action?.turn !== undefined) {
+      wantedTurn += (beat.action.turn - wantedTurn) * beat.weight;
+    }
+    bodyYaw = damp(bodyYaw, wantedTurn + aimX * 0.1, placeRate, dt);
     root.rotation.y = bodyYaw + spinOffset;
 
     // The punch that lands with the pose, decaying back to normal size.
@@ -813,9 +794,6 @@ async function start(stage: HTMLElement): Promise<void> {
     // A real clip, when there is one, owns the whole humanoid — the authored
     // rig would only fight it. Everything else on this character (camera,
     // stage placement, eye tracking, blinking) keeps running either way.
-    mixer?.update(dt);
-    const motionDriven = currentAction !== null;
-
     // Pose springs + idle layer.
     const steps = Math.max(1, Math.ceil(dt / MAX_STEP));
     const h = dt / steps;
@@ -841,8 +819,20 @@ async function start(stage: HTMLElement): Promise<void> {
       const k = omega * omega;
       const c = 2 * zeta * omega;
 
+      // The cross-fade. Blending the pose *targets* rather than the finished
+      // bone rotations is what keeps the springs' overlapping action through
+      // the transition: the body is still chasing one moving target with the
+      // hips leading and the hands trailing, it is just that the target walks
+      // from the slide's pose over to the action's and back.
+      const actionA = actionPose?.pose[bone] ?? ZERO;
+      const actionB = actionPose?.poseB?.[bone] ?? actionA;
+
       for (let axis = 0; axis < 3; axis += 1) {
-        const target = a[axis] + (b[axis] - a[axis]) * blend;
+        let target = a[axis] + (b[axis] - a[axis]) * blend;
+        if (actionPose && actionWeight > 0) {
+          const wanted = actionA[axis] + (actionB[axis] - actionA[axis]) * blend;
+          target += (wanted - target) * actionWeight;
+        }
         let x = state[axis];
         let v = state[axis + 3];
         for (let step = 0; step < steps; step += 1) {
@@ -853,13 +843,44 @@ async function start(stage: HTMLElement): Promise<void> {
         state[axis + 3] = v;
       }
 
+      // Additive layers, in order of who yields to whom. The idle sway is
+      // pulled down while an action runs — a wave layered onto a sword swing
+      // reads as two animations fighting — but never all the way out, since
+      // the breathing under it is what keeps the body alive mid-hold.
       idleFor(bone, elapsed, idleBuffer);
+      const idleDamp = 1 - 0.8 * actionWeight;
+
+      overlayBuffer[0] = 0;
+      overlayBuffer[1] = 0;
+      overlayBuffer[2] = 0;
+      if (actionPose?.overlay && actionWeight > 0) {
+        actionPose.overlay(beat.t, beat.phase, bone, overlayBuffer);
+      }
+
+      const lean = actions.leanFor(bone, scrollLean.value);
+
       node.rotation.set(
-        state[0] + idleBuffer[0],
-        state[1] + idleBuffer[1],
-        state[2] + idleBuffer[2],
+        state[0] + idleBuffer[0] * idleDamp + overlayBuffer[0] * actionWeight + lean,
+        state[1] + idleBuffer[1] * idleDamp + overlayBuffer[1] * actionWeight,
+        state[2] + idleBuffer[2] * idleDamp + overlayBuffer[2] * actionWeight,
       );
     });
+
+    // Fingers. A clip owns them like everything else; otherwise they take the
+    // action's grip if it asked for one and fall back to the resting curve.
+    if (!motionDriven) {
+      const wantedHands = actionPose?.hands;
+      fingerJoints.forEach((joint) => {
+        const asked = joint.side === 'left' ? wantedHands?.left : wantedHands?.right;
+        const resting = curlOf(undefined, joint.finger);
+        const wanted = asked
+          ? resting + (curlOf(asked, joint.finger) - resting) * actionWeight
+          : resting;
+        joint.curl = damp(joint.curl, wanted, 12, dt);
+        fingerRotation(joint.side, joint.finger, joint.segment, joint.curl, fingerBuffer);
+        joint.node.rotation.set(fingerBuffer[0], fingerBuffer[1], fingerBuffer[2]);
+      });
+    }
 
     // Camera rig. `placeRate` is the same snap the pose uses, so the framing
     // lands with the pose rather than drifting in behind it.
@@ -907,7 +928,12 @@ async function start(stage: HTMLElement): Promise<void> {
       if (!motionDriven) ['happy', 'relaxed', 'sad', 'surprised'].forEach((name) => {
         // Held well below 1: at full weight the presets open the mouth wide,
         // which reads as a shout rather than an expression.
-        const wanted = active.expression === name ? 0.4 : 0;
+        const fromScene = active.expression === name ? 0.4 : 0;
+        // The face cross-fades on the same weight as the body, so an action
+        // that drops the smile does it over the same beat as the pose.
+        const wanted = actionPose
+          ? fromScene + ((actionPose.expression === name ? 0.4 : 0) - fromScene) * actionWeight
+          : fromScene;
         expressions.setValue(name, damp(expressions.getValue(name) ?? 0, wanted, 3, dt));
       });
 
@@ -941,6 +967,8 @@ async function start(stage: HTMLElement): Promise<void> {
     destroy() {
       destroyed = true;
       renderer.setAnimationLoop(null);
+      director.dispose();
+      scrollLean.dispose();
       window.clearTimeout(burstTimer);
       mixer?.stopAllAction();
       mixer = null;
