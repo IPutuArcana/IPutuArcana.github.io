@@ -1,3 +1,8 @@
+> **Baca [DOKUMENTASI_PENGEMBANG.md](DOKUMENTASI_PENGEMBANG.md) lebih dulu.**
+> Berkas itu panduan utama proyek ini untuk manusia: gambaran menyeluruh,
+> sistem konten dwibahasa, cara kerja karakter 3D Lionk, sistem blog, dan
+> kuirk lingkungan yang wajib diketahui sebelum menyentuh apa pun.
+
 ## Development
 
 When starting the dev server, use background mode:
