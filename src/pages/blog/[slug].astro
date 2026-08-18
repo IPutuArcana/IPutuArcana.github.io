@@ -1,0 +1,127 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Header from '../../components/Header.astro';
+import Footer from '../../components/Footer.astro';
+import CloudMotif from '../../components/motifs/CloudMotif.astro';
+import { content } from '../../data/content';
+
+export async function getStaticPaths() {
+  return content.id.blog.posts.map((post) => ({
+    params: { slug: post.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+
+const lang = 'id' as const;
+const en = content.en;
+const id = content.id;
+
+const idIndex = id.blog.posts.findIndex((p) => p.slug === slug);
+const post = id.blog.posts[idIndex];
+const enPost = en.blog.posts[idIndex];
+
+const formattedDate = new Date(post.date).toLocaleDateString('en-CA');
+---
+
+<BaseLayout lang={lang}>
+  <Header lang={lang} transition:persist />
+  <main>
+    <article class="section wrap" id="main">
+      <CloudMotif class="post-cloud" width={240} />
+
+      <a class="back-link" href="/blog" data-i18n-id={`← ${id.blog.eyebrow}`} data-i18n-en={`← ${en.blog.eyebrow}`}>
+        ← {id.blog.eyebrow}
+      </a>
+
+      <div class="post-head panel reveal">
+        <div class="post-meta">
+          <span class="post-tag" data-i18n-id={post.tag} data-i18n-en={enPost.tag}>{post.tag}</span>
+          <time datetime={post.date}>{formattedDate}</time>
+        </div>
+        <h1 data-i18n-id={post.title} data-i18n-en={enPost.title}>
+          {post.title}
+        </h1>
+      </div>
+
+      <div class="post-body panel reveal">
+        {post.body.map((paragraph, i) => (
+          <p data-i18n-id={paragraph} data-i18n-en={enPost.body[i]}>
+            {paragraph}
+          </p>
+        ))}
+      </div>
+    </article>
+  </main>
+  <Footer lang={lang} transition:persist />
+</BaseLayout>
+
+<style>
+  #main {
+    position: relative;
+    padding-block: var(--space-xl) var(--space-section);
+    max-width: 46rem;
+  }
+
+  .post-cloud {
+    top: -1rem;
+    right: -3rem;
+    z-index: 0;
+  }
+
+  .back-link {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    margin-bottom: var(--space-md);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    text-decoration: none;
+  }
+
+  .back-link:hover {
+    color: var(--color-accent);
+  }
+
+  .post-head {
+    position: relative;
+    z-index: 1;
+    padding: var(--space-lg);
+    margin-bottom: var(--space-md);
+  }
+
+  .post-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-sm);
+  }
+
+  .post-tag {
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--color-accent) 25%, var(--glass-bg));
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .post-head h1 {
+    font-size: var(--text-h2);
+  }
+
+  .post-body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+  }
+
+  .post-body p {
+    font-size: var(--text-lg);
+    line-height: var(--leading-normal);
+  }
+</style>

@@ -11,14 +11,14 @@ const { post, enPost } = Astro.props;
 const formattedDate = new Date(post.date).toLocaleDateString('en-CA');
 ---
 
-<article class="post-card panel reveal" data-searchable>
+<a class="post-card panel reveal" data-searchable href={`/blog/${post.slug}`}>
   <div class="post-meta">
     <span class="post-tag" data-i18n-id={post.tag} data-i18n-en={enPost.tag}>{post.tag}</span>
     <time datetime={post.date}>{formattedDate}</time>
   </div>
   <h3 data-i18n-id={post.title} data-i18n-en={enPost.title}>{post.title}</h3>
   <p data-i18n-id={post.excerpt} data-i18n-en={enPost.excerpt}>{post.excerpt}</p>
-</article>
+</a>
 
 <style>
   .post-card {
